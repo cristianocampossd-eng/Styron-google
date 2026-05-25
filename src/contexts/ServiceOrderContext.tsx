@@ -166,7 +166,7 @@ const ServiceOrderContext = createContext<ServiceOrderContextType | null>(null);
 
 export function ServiceOrderProvider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
-  const { profiles } = useApp();
+  const { profiles, useLocalFallback } = useApp();
   const [orders, setOrders] = useState<ServiceOrder[]>([]);
   const [notifications, setNotifications] = useState<OSNotification[]>([]);
   const currentUser = profile?.name || user?.email || CURRENT_USER_FALLBACK;
@@ -174,8 +174,75 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
   
   const getProfileName = (id: string) => profiles.find((p) => p.id === id)?.name || id;
 
+  const loadFromLocalStorage = useCallback(() => {
+    let localOS = localStorage.getItem("styron_service_orders");
+    if (!localOS) {
+      const initialOS = [
+        {
+          id: "os1",
+          number: "OS-0001",
+          projectId: "p1",
+          title: "Revisão Orçamento Inicial",
+          description: "Necessário revisar os itens de orçamento para aquisição de matérias primas.",
+          priority: "high",
+          status: "in_progress",
+          creator: "usr-1",
+          responsible: "usr-2",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          attachments: [],
+          comments: [],
+          timeline: [
+            { id: "tl1", action: "Ordem de serviço criada", user: "Ana Silva", date: new Date().toISOString() }
+          ]
+        }
+      ];
+      localOS = JSON.stringify(initialOS);
+      localStorage.setItem("styron_service_orders", localOS);
+    }
+
+    const parsed = JSON.parse(localOS).map((o: any) => ({
+      ...o,
+      createdAt: new Date(o.createdAt),
+      updatedAt: new Date(o.updatedAt),
+      dueDate: o.dueDate ? new Date(o.dueDate) : undefined,
+      deadlineExtensionRequest: o.deadlineExtensionRequest ? {
+        ...o.deadlineExtensionRequest,
+        requestedDate: new Date(o.deadlineExtensionRequest.requestedDate),
+        dateRequested: new Date(o.deadlineExtensionRequest.dateRequested)
+      } : undefined,
+      timeline: (o.timeline || []).map((t: any) => ({ ...t, date: new Date(t.date) })),
+      comments: (o.comments || []).map((c: any) => ({ ...c, date: new Date(c.date) })),
+    }));
+    setOrders(parsed);
+
+    let localOSNotifs = localStorage.getItem("styron_os_notifications") || "[]";
+    setNotifications(JSON.parse(localOSNotifs).map((n: any) => ({
+      ...n,
+      date: new Date(n.date)
+    })));
+  }, []);
+
+  // Sync to localstorage if fallback active
+  useEffect(() => {
+    if (useLocalFallback) {
+      localStorage.setItem("styron_service_orders", JSON.stringify(orders));
+    }
+  }, [orders, useLocalFallback]);
+
+  useEffect(() => {
+    if (useLocalFallback) {
+      localStorage.setItem("styron_os_notifications", JSON.stringify(notifications));
+    }
+  }, [notifications, useLocalFallback]);
+
   useEffect(() => {
     if (!user) return;
+    if (useLocalFallback) {
+      loadFromLocalStorage();
+      return;
+    }
+
     loadOrders();
     loadOSNotifications();
 
@@ -184,7 +251,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "service_orders" }, () => loadOrders())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  }, [user, useLocalFallback]);
 
   async function loadOrders() {
     try {
@@ -296,6 +363,48 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
 
   const createOrder = useCallback(
     (data: { projectId: string; responsible: string; priority: OSPriority; title: string; description: string; dueDate?: Date; attachments?: File[] }) => {
+      if (useLocalFallback) {
+        const newId = `os-${Date.now()}`;
+        const newNo = `OS-${String(orders.length + 1).padStart(4, "0")}`;
+        const newOS: ServiceOrder = {
+          id: newId,
+          number: newNo,
+          projectId: data.projectId,
+          title: data.title,
+          description: data.description,
+          priority: data.priority,
+          status: "sent",
+          creator: currentUserId || "usr-1",
+          responsible: data.responsible,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+          attachments: (data.attachments || []).map((file, idx) => ({
+            id: `at-${Date.now()}-${idx}`,
+            name: file.name,
+            url: URL.createObjectURL(file),
+            type: file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file"
+          })),
+          comments: [],
+          timeline: [
+            { id: `tl-${Date.now()}`, action: "Ordem de Serviço criada", user: currentUser, date: new Date() }
+          ]
+        };
+
+        setOrders((prev) => [newOS, ...prev]);
+
+        const newNotif: OSNotification = {
+          id: `notif-${Date.now()}`,
+          osId: newId,
+          message: `Nova OS: ${data.title}`,
+          date: new Date(),
+          read: false,
+          user: currentUser
+        };
+        setNotifications((prev) => [newNotif, ...prev]);
+        return;
+      }
+
       (async () => {
         const obsPayload = stringifyObservation(data.description, data.dueDate);
         const { data: inserted, error } = await supabase.from("service_orders").insert({
@@ -310,7 +419,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
         }).select().single();
         if (error) return;
 
-      // Create timeline event for creation
+        // Create timeline event for creation
         await supabase.from("service_orders").update({
           observation: stringifyObservation(data.description, data.dueDate, undefined, [], [{ 
             id: crypto.randomUUID(), 
@@ -348,10 +457,29 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
         await loadOSNotifications();
       })();
     },
-    [currentUserId]
+    [currentUserId, orders, useLocalFallback, currentUser]
   );
 
   const updateStatus = useCallback((osId: string, status: OSStatus) => {
+    if (useLocalFallback) {
+      setOrders((prev) => prev.map((o) => {
+        if (o.id !== osId) return o;
+        return {
+          ...o,
+          status,
+          updatedAt: new Date(),
+          timeline: [...o.timeline, {
+            id: `tl-${Date.now()}`,
+            action: `Status alterado`,
+            user: currentUser,
+            date: new Date(),
+            details: `Status alterado para: ${osStatusLabels[status]}`
+          }]
+        };
+      }));
+      return;
+    }
+
     (async () => {
       const os = orders.find(o => o.id === osId);
       if (!os) return;
@@ -362,9 +490,38 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       await supabase.from("service_orders").update({ status, observation: obsPayload }).eq("id", osId);
       await loadOrders();
     })();
-  }, [orders, currentUserId]);
+  }, [orders, currentUserId, useLocalFallback, currentUser]);
 
   const reassign = useCallback((osId: string, newResponsible: string) => {
+    if (useLocalFallback) {
+      setOrders((prev) => prev.map((o) => {
+        if (o.id !== osId) return o;
+        return {
+          ...o,
+          responsible: newResponsible,
+          updatedAt: new Date(),
+          timeline: [...o.timeline, {
+            id: `tl-${Date.now()}`,
+            action: `OS reatribuída`,
+            user: currentUser,
+            date: new Date(),
+            details: `atribuída a ${getProfileName(newResponsible)}`
+          }]
+        };
+      }));
+
+      const newNotif: OSNotification = {
+        id: `notif-${Date.now()}`,
+        osId,
+        message: "Uma OS foi reatribuída para você",
+        date: new Date(),
+        read: false,
+        user: currentUser
+      };
+      setNotifications((prev) => [newNotif, ...prev]);
+      return;
+    }
+
     (async () => {
       const os = orders.find(o => o.id === osId);
       if (!os) return;
@@ -382,9 +539,40 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       });
       await loadOrders();
     })();
-  }, [orders, currentUserId]);
+  }, [orders, currentUserId, useLocalFallback, currentUser, profiles]);
 
   const addComment = useCallback((osId: string, text: string, imageUrl?: string) => {
+    if (useLocalFallback) {
+      const newComment = { id: `cm-${Date.now()}`, author: currentUser, authorId: currentUserId, text, date: new Date(), imageUrl };
+      
+      setOrders((prev) => prev.map((o) => {
+        if (o.id !== osId) return o;
+        return {
+          ...o,
+          comments: [...o.comments, newComment],
+          updatedAt: new Date()
+        };
+      }));
+
+      const os = orders.find((o) => o.id === osId);
+      if (os) {
+        const recipients = new Set<string>();
+        if (os.creator && os.creator !== currentUserId) recipients.add(os.creator);
+        if (os.responsible && os.responsible !== currentUserId) recipients.add(os.responsible);
+
+        const newNotifs = Array.from(recipients).map((id) => ({
+          id: `notif-${Date.now()}-${id}`,
+          osId,
+          message: `${currentUser} enviou uma mensagem na OS #${os.number}`,
+          date: new Date(),
+          read: false,
+          user: currentUser
+        }));
+        setNotifications((prev) => [...newNotifs, ...prev]);
+      }
+      return;
+    }
+
     (async () => {
       const os = orders.find(o => o.id === osId);
       if (!os) return;
@@ -413,7 +601,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       await loadOrders();
       await loadOSNotifications();
     })();
-  }, [orders, currentUser, currentUserId]);
+  }, [orders, currentUser, currentUserId, useLocalFallback]);
 
   const markNotificationRead = useCallback((notifId: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === notifId ? { ...n, read: true } : n)));
@@ -424,6 +612,31 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const requestMoreTime = useCallback(async (osId: string, newDate: Date, justification: string) => {
+    if (useLocalFallback) {
+      setOrders((prev) => prev.map((o) => {
+        if (o.id !== osId) return o;
+        const req: DeadlineExtensionRequest = {
+          requestedDate: newDate,
+          justification,
+          status: "pending",
+          dateRequested: new Date()
+        };
+        return {
+          ...o,
+          deadlineExtensionRequest: req,
+          updatedAt: new Date(),
+          timeline: [...o.timeline, {
+            id: `tl-${Date.now()}`,
+            action: `Prazo solicitado`,
+            user: currentUser,
+            date: new Date(),
+            details: `Solicitado novo prazo para ${newDate.toLocaleDateString()}`
+          }]
+        };
+      }));
+      return;
+    }
+
     const os = orders.find(o => o.id === osId);
     if (!os) return;
     const req: DeadlineExtensionRequest = {
@@ -444,9 +657,29 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       message: `OS ${os.title}: Novo prazo solicitado`,
       link: os.id,
     });
-  }, [orders, currentUserId]);
+  }, [orders, currentUserId, useLocalFallback, currentUser]);
 
   const respondTimeRequest = useCallback(async (osId: string, status: "approved" | "rejected", modifiedDate?: Date) => {
+    if (useLocalFallback) {
+      setOrders((prev) => prev.map((o) => {
+        if (o.id !== osId) return o;
+        const newDueDate = status === "approved" ? (modifiedDate || o.deadlineExtensionRequest?.requestedDate || o.dueDate) : o.dueDate;
+        return {
+          ...o,
+          dueDate: newDueDate,
+          deadlineExtensionRequest: o.deadlineExtensionRequest ? { ...o.deadlineExtensionRequest, status } : undefined,
+          updatedAt: new Date(),
+          timeline: [...o.timeline, {
+            id: `tl-${Date.now()}`,
+            action: `Solicitação de prazo ${status === 'approved' ? 'aprovada' : 'rejeitada'}`,
+            user: currentUser,
+            date: new Date()
+          }]
+        };
+      }));
+      return;
+    }
+
     const os = orders.find(o => o.id === osId);
     if (!os || !os.deadlineExtensionRequest) return;
     
@@ -466,9 +699,35 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       message: `OS ${os.title}: Sua solicitação de prazo foi ${status === "approved" ? "aprovada" : "rejeitada"}`,
       link: os.id,
     });
-  }, [orders, currentUserId]);
+  }, [orders, currentUserId, useLocalFallback, currentUser]);
 
   const addAttachment = useCallback(async (osId: string, files: File[]) => {
+    if (useLocalFallback) {
+      if (!files || files.length === 0) return;
+      setOrders((prev) => prev.map((o) => {
+        if (o.id !== osId) return o;
+        const newAtts = files.map((f, idx) => ({
+          id: `at-${Date.now()}-${idx}`,
+          name: f.name,
+          url: URL.createObjectURL(f),
+          type: (f.type.startsWith("image/") ? "image" : f.type.startsWith("video/") ? "video" : "file") as any
+        }));
+        return {
+          ...o,
+          attachments: [...o.attachments, ...newAtts],
+          updatedAt: new Date(),
+          timeline: [...o.timeline, {
+            id: `tl-${Date.now()}`,
+            action: `Upload de anexo`,
+            user: currentUser,
+            date: new Date(),
+            details: `${files.length} arquivo(s) anexado(s)`
+          }]
+        };
+      }));
+      return;
+    }
+
     if (!files || files.length === 0) return;
     
     const os = orders.find(o => o.id === osId);
@@ -493,7 +752,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
     await supabase.from("service_orders").update({ observation: obsPayload }).eq("id", os.id);
 
     await loadOrders();
-  }, [orders, currentUserId]);
+  }, [orders, currentUserId, useLocalFallback, currentUser]);
 
   const archiveOrder = useCallback((osId: string) => {
     updateStatus(osId, "archived");

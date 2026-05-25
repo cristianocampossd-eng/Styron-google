@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase, auth } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useApp } from "@/contexts/AppContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Lock, Unlock, Shield, KeyRound, UserCog } from "lucide-react";
@@ -25,6 +26,7 @@ const MODULES = [
 ];
 
 export default function AccountsSettings() {
+  const { useLocalFallback, profiles: ctxProfiles, setProfiles } = useApp();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -49,6 +51,22 @@ export default function AccountsSettings() {
   const handleSaveRole = async () => {
     if (!roleEditUser) return;
     setRoleSubmitting(true);
+    
+    if (useLocalFallback) {
+      const updated = ctxProfiles.map((p: any) => {
+        if (p.id === roleEditUser.id) {
+          return { ...p, role: selectedRole };
+        }
+        return p;
+      });
+      setProfiles(updated);
+      localStorage.setItem("styron_profiles", JSON.stringify(updated));
+      setRoleSubmitting(false);
+      toast.success(`Função de ${roleEditUser.name} alterada para ${selectedRole === "admin" ? "Administrador" : "Operacional"} com sucesso!`);
+      setRoleEditUser(null);
+      return;
+    }
+
     const { error } = await supabase.from("user_roles").upsert({
       id: roleEditUser.id,
       user_id: roleEditUser.id,
@@ -67,6 +85,21 @@ export default function AccountsSettings() {
 
   const load = async () => {
     setLoading(true);
+    
+    if (useLocalFallback) {
+      const merged: UserRow[] = ctxProfiles.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        phone: p.phone || "",
+        blocked: !!p.blocked,
+        role: p.role || "operational",
+      }));
+      setUsers(merged);
+      setLoading(false);
+      return;
+    }
+
     const { data: profiles } = await supabase.from("profiles").select("id, name, email, phone, blocked");
     const { data: roles } = await supabase.from("user_roles").select("user_id, role");
     const merged: UserRow[] = (profiles || []).map((p: any) => ({
@@ -76,9 +109,23 @@ export default function AccountsSettings() {
     setUsers(merged);
     setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  
+  useEffect(() => { load(); }, [ctxProfiles, useLocalFallback]);
 
   const toggleBlock = async (u: UserRow) => {
+    if (useLocalFallback) {
+      const updated = ctxProfiles.map((p: any) => {
+        if (p.id === u.id) {
+          return { ...p, blocked: !u.blocked };
+        }
+        return p;
+      });
+      setProfiles(updated);
+      localStorage.setItem("styron_profiles", JSON.stringify(updated));
+      toast.success(!u.blocked ? "Usuário bloqueado" : "Usuário desbloqueado");
+      return;
+    }
+
     const { error } = await supabase.from("profiles").update({ blocked: !u.blocked }).eq("id", u.id);
     if (error) return toast.error("Erro ao atualizar");
     toast.success(!u.blocked ? "Usuário bloqueado" : "Usuário desbloqueado");
@@ -88,16 +135,141 @@ export default function AccountsSettings() {
   const submitCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    const { data, error } = await supabase.functions.invoke("create-user", {
-      body: form,
-    });
-    setSubmitting(false);
-    if (error || !data?.success) {
-      toast.error(data?.error || error?.message || "Erro ao criar usuário");
+    
+    if (useLocalFallback) {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+      let pass = "";
+      for (let i = 0; i < 11; i++) {
+        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      const tempPassword = pass + "!1a";
+      const newUserId = `usr-${Date.now()}`;
+      const newProfile = {
+        id: newUserId,
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        blocked: false,
+        role: form.role
+      };
+      
+      const updated = [newProfile, ...ctxProfiles];
+      setProfiles(updated);
+      localStorage.setItem("styron_profiles", JSON.stringify(updated));
+      
+      setSubmitting(false);
+      toast.success("Usuário criado com sucesso!");
+      setCreatedInfo({ email: form.email, password: tempPassword });
+      setForm({ name: "", email: "", phone: "", role: "operational" });
+      setCreateOpen(false);
       return;
     }
-    toast.success("Usuário criado e e-mail de boas-vindas enviado!");
-    setCreatedInfo({ email: form.email, password: data.tempPassword });
+
+    let success = false;
+    let tempPassword = "";
+    
+    try {
+      console.log("Tentando criar usuário via Edge Function...");
+      const { data, error } = await supabase.functions.invoke("create-user", {
+        body: form,
+      });
+      
+      if (!error && data?.success) {
+        success = true;
+        tempPassword = data.tempPassword;
+      } else {
+        console.warn("Falha no Edge Function, tentando método alternativo...", error, data?.error);
+      }
+    } catch (err) {
+      console.warn("Remoto indisponível. Tentando método alternativo...", err);
+    }
+    
+    if (!success) {
+      console.log("Iniciando fluxo de cadastro alternativo (client-side)...");
+      toast.info("Processando criação direta do usuário no Supabase...");
+      
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
+      
+      if (!supabaseUrl || !supabaseAnonKey) {
+        toast.error("Configuração do Supabase ausente nas variáveis de ambiente!");
+        setSubmitting(false);
+        return;
+      }
+      
+      try {
+        const { createClient } = await import("@supabase/supabase-js");
+        // Criamos o cliente secundário com persistSession: false para não deslogar o administrador
+        const tempClient = createClient(supabaseUrl, supabaseAnonKey, {
+          auth: { persistSession: false, autoRefreshToken: false }
+        });
+        
+        // Geramos a senha temporária
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+        let pass = "";
+        for (let i = 0; i < 11; i++) {
+          pass += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        tempPassword = pass + "!1a";
+        
+        // Criar o usuário no authentication do Supabase
+        console.log("Tentando cadastrar via tempClient.auth.signUp para o email:", form.email);
+        const { data: authData, error: authError } = await tempClient.auth.signUp({
+          email: form.email,
+          password: tempPassword,
+          options: {
+            data: {
+              full_name: form.name,
+            }
+          }
+        });
+        
+        console.log("Resultado do signUp:", { authData, authError });
+        
+        if (authError) {
+          throw new Error(authError.message || `Erro do Supabase Auth (Status: ${authError.status})`);
+        }
+        
+        if (!authData?.user) {
+          throw new Error("Não foi possível criar registro de autenticação (A resposta retornou sem dados de usuário. Verifique se o cadastro público/signUp está desativado no painel do Supabase, ou se este e-mail já existe).");
+        }
+        
+        const newUserId = authData.user.id;
+        
+        // Aguarda 1000ms para garantir que os triggers do PostgreSQL criaram o perfil básico
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Atualiza campos adicionais (telefone) usando a sessão admin principal do app
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ phone: form.phone || "" })
+          .eq("id", newUserId);
+          
+        if (profileError) {
+          console.warn("Aviso: Erro ao definir telefone no perfil: ", profileError);
+        }
+        
+        // Garante a inserção/substituição do perfil e função corretos
+        await supabase.from("user_roles").delete().eq("user_id", newUserId);
+        const { error: roleError } = await supabase
+          .from("user_roles")
+          .insert({ user_id: newUserId, role: form.role as "admin" | "operational" });
+          
+        if (roleError) {
+          console.warn("Aviso: Erro ao definir função de usuário: ", roleError);
+        }
+        
+        success = true;
+      } catch (err: any) {
+        toast.error("Falha ao criar usuário: " + (err.message || "erro desconhecido"));
+        setSubmitting(false);
+        return;
+      }
+    }
+    
+    setSubmitting(false);
+    toast.success("Usuário criado com sucesso!");
+    setCreatedInfo({ email: form.email, password: tempPassword });
     setForm({ name: "", email: "", phone: "", role: "operational" });
     setCreateOpen(false);
     load();
@@ -105,6 +277,12 @@ export default function AccountsSettings() {
 
   const openPerms = async (u: UserRow) => {
     setPermsUser(u);
+    if (useLocalFallback) {
+      const localPermsKey = `styron_perms_${u.id}`;
+      const existingPerms = JSON.parse(localStorage.getItem(localPermsKey) || "{}");
+      setPerms(existingPerms);
+      return;
+    }
     const { data } = await supabase.from("user_permissions").select("module, granted").eq("user_id", u.id);
     const map: Record<string, boolean> = {};
     (data || []).forEach((p: any) => { map[p.module] = p.granted; });
@@ -114,6 +292,13 @@ export default function AccountsSettings() {
   const togglePerm = async (mod: string, val: boolean) => {
     if (!permsUser) return;
     setPerms((p) => ({ ...p, [mod]: val }));
+    if (useLocalFallback) {
+      const localPermsKey = `styron_perms_${permsUser.id}`;
+      const existingPerms = JSON.parse(localStorage.getItem(localPermsKey) || "{}");
+      existingPerms[mod] = val;
+      localStorage.setItem(localPermsKey, JSON.stringify(existingPerms));
+      return;
+    }
     await supabase.from("user_permissions").upsert(
       { user_id: permsUser.id, module: mod, granted: val },
       { onConflict: "user_id,module" }
@@ -158,6 +343,10 @@ export default function AccountsSettings() {
                       size="sm"
                       variant="outline"
                       onClick={async () => {
+                        if (useLocalFallback) {
+                          toast.success("Simulação: E-mail de cadastro de senha enviado!");
+                          return;
+                        }
                         const tid = toast.loading("Enviando e-mail de cadastro...");
                         const { error } = await supabase.auth.resetPasswordForEmail(u.email!);
                         toast.dismiss(tid);

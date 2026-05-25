@@ -2,13 +2,18 @@ import { createContext, useContext, useState, useCallback, useEffect, type React
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./AuthContext";
 import { toast } from "sonner";
-import type {
-  Project,
-  Transaction,
-  Account,
-  Task,
-  Category,
-  Stage,
+import {
+  type Project,
+  type Transaction,
+  type Account,
+  type Task,
+  type Category,
+  type Stage,
+  mockProjects,
+  mockAccounts,
+  mockCategories,
+  mockTransactions,
+  people,
 } from "@/data/mock";
 
 export interface ReceivablePayable {
@@ -53,7 +58,8 @@ interface AppContextType {
   taskMessages: TaskMessage[];
   notifications: Notification[];
   loading: boolean;
-  profiles: { id: string; name: string; email: string | null }[];
+  profiles: { id: string; name: string; email: string | null; phone?: string | null; blocked?: boolean; role?: string }[];
+  setProfiles: React.Dispatch<React.SetStateAction<{ id: string; name: string; email: string | null; phone?: string | null; blocked?: boolean; role?: string }[]>>;
   addProject: (p: Partial<Project> & { fromTemplateId?: string }) => Promise<void>;
   updateProject: (id: string, data: Partial<Project>) => Promise<void>;
   updateProjectInvestment: (id: string, value: number) => Promise<void>;
@@ -78,12 +84,13 @@ interface AppContextType {
   refreshTransactions: () => Promise<void>;
   refreshAccounts: () => Promise<void>;
   addCategory: (name: string, type: "income" | "expense") => Promise<void>;
+  useLocalFallback: boolean;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<Project[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -92,8 +99,186 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [taskMessages, setTaskMessages] = useState<TaskMessage[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [profiles, setProfiles] = useState<{ id: string; name: string; email: string | null }[]>([]);
+  const [profiles, setProfiles] = useState<{ id: string; name: string; email: string | null; phone?: string | null; blocked?: boolean; role?: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [useLocalFallback, setUseLocalFallback] = useState(false);
+
+  // Helper to check if Supabase has required tables
+  const checkSupabaseOfflineOrMissing = async (): Promise<boolean> => {
+    try {
+      const { error } = await supabase.from("profiles").select("id").limit(1);
+      if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table') || error.message?.includes('schema cache'))) {
+        console.warn("Supabase tables are missing. Using LocalStorage fallback.");
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.warn("Failed to connect to Supabase. Using LocalStorage fallback.", e);
+      return true;
+    }
+  };
+
+  const loadFromLocalStorage = useCallback(() => {
+    // 1. Categories
+    let localCats = localStorage.getItem("styron_categories");
+    if (!localCats) {
+      localCats = JSON.stringify(mockCategories);
+      localStorage.setItem("styron_categories", localCats);
+    }
+    setCategories(JSON.parse(localCats));
+
+    // 2. Accounts
+    let localAccs = localStorage.getItem("styron_accounts");
+    if (!localAccs) {
+      localAccs = JSON.stringify(mockAccounts);
+      localStorage.setItem("styron_accounts", localAccs);
+    }
+    setAccounts(JSON.parse(localAccs));
+
+    // 3. Projects
+    let localProjs = localStorage.getItem("styron_projects");
+    if (!localProjs) {
+      localProjs = JSON.stringify(mockProjects);
+      localStorage.setItem("styron_projects", localProjs);
+    }
+    const parsedProjs = JSON.parse(localProjs).map((p: any) => ({
+      ...p,
+      startDate: new Date(p.startDate),
+      endDate: new Date(p.endDate),
+      stages: (p.stages || []).map((s: any) => ({
+        ...s,
+        tasks: (s.tasks || []).map((t: any) => ({
+          ...t,
+          startDate: new Date(t.startDate),
+          endDate: new Date(t.endDate),
+        }))
+      }))
+    }));
+    setProjects(parsedProjs.filter((p: any) => !p.is_template));
+    setTemplates(parsedProjs.filter((p: any) => p.is_template));
+
+    // 4. Transactions
+    let localTx = localStorage.getItem("styron_transactions");
+    if (!localTx) {
+      localTx = JSON.stringify(mockTransactions);
+      localStorage.setItem("styron_transactions", localTx);
+    }
+    setTransactions(JSON.parse(localTx).map((t: any) => ({
+      ...t,
+      date: new Date(t.date)
+    })));
+
+    // 5. Receivables
+    let localRec = localStorage.getItem("styron_receivables");
+    if (!localRec) {
+      const initialReceivables = [
+        {
+          id: "rec1",
+          date: new Date(),
+          dueDate: new Date(Date.now() + 5 * 86400000),
+          description: "Serviço de Desenvolvimento App",
+          type: "income",
+          status: "pending",
+          recurrence: "once",
+          value: 12000,
+          projectId: "p1",
+          categoryId: "cat6",
+          accountId: "acc1"
+        },
+        {
+          id: "rec2",
+          date: new Date(),
+          dueDate: new Date(Date.now() + 10 * 86400000),
+          description: "Servidor Mensal Heroku",
+          type: "expense",
+          status: "pending",
+          recurrence: "monthly",
+          value: 350,
+          projectId: null,
+          categoryId: "cat3",
+          accountId: "acc2"
+        }
+      ];
+      localRec = JSON.stringify(initialReceivables);
+      localStorage.setItem("styron_receivables", localRec);
+    }
+    setReceivables(JSON.parse(localRec).map((r: any) => ({
+      ...r,
+      date: new Date(r.date),
+      dueDate: new Date(r.dueDate)
+    })));
+
+    // 6. Profiles
+    let localProfiles = localStorage.getItem("styron_profiles");
+    if (!localProfiles) {
+      const initialProfiles = people.map((p, index) => ({
+        id: `usr-${index + 1}`,
+        name: p,
+        email: `${p.toLowerCase().replace(/ /g, ".")}@styron.com.br`
+      }));
+      if (user) {
+        initialProfiles.unshift({
+          id: user.id,
+          name: profile?.name || user.email?.split("@")[0] || "Administrador",
+          email: user.email || ""
+        });
+      }
+      localProfiles = JSON.stringify(initialProfiles);
+      localStorage.setItem("styron_profiles", localProfiles);
+    }
+    setProfiles(JSON.parse(localProfiles));
+
+    // 7. Notifications
+    let localNotifs = localStorage.getItem("styron_notifications") || "[]";
+    setNotifications(JSON.parse(localNotifs).map((n: any) => ({
+      ...n,
+      date: new Date(n.date)
+    })));
+  }, [user, profile]);
+
+  // Sync state to localStorage if fallback mode is active
+  useEffect(() => {
+    if (useLocalFallback) {
+      const allProjects = [...projects, ...templates];
+      localStorage.setItem("styron_projects", JSON.stringify(allProjects));
+    }
+  }, [projects, templates, useLocalFallback]);
+
+  useEffect(() => {
+    if (useLocalFallback) {
+      localStorage.setItem("styron_transactions", JSON.stringify(transactions));
+    }
+  }, [transactions, useLocalFallback]);
+
+  useEffect(() => {
+    if (useLocalFallback) {
+      localStorage.setItem("styron_accounts", JSON.stringify(accounts));
+    }
+  }, [accounts, useLocalFallback]);
+
+  useEffect(() => {
+    if (useLocalFallback) {
+      localStorage.setItem("styron_categories", JSON.stringify(categories));
+    }
+  }, [categories, useLocalFallback]);
+
+  useEffect(() => {
+    if (useLocalFallback) {
+      localStorage.setItem("styron_receivables", JSON.stringify(receivables));
+    }
+  }, [receivables, useLocalFallback]);
+
+  useEffect(() => {
+    if (useLocalFallback) {
+      localStorage.setItem("styron_notifications", JSON.stringify(notifications));
+    }
+  }, [notifications, useLocalFallback]);
+
+  useEffect(() => {
+    if (useLocalFallback) {
+      localStorage.setItem("styron_profiles", JSON.stringify(profiles));
+    }
+  }, [profiles, useLocalFallback]);
 
   // Load all data when user is authenticated
   useEffect(() => {
@@ -106,7 +291,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Realtime for notifications
   useEffect(() => {
-    if (!user) return;
+    if (!user || useLocalFallback) return;
     const channel = supabase
       .channel("notifications-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, () => {
@@ -114,22 +299,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  }, [user, useLocalFallback]);
 
   async function loadAll() {
     setLoading(true);
     try {
-      await Promise.all([
-        loadProjects().catch((err) => console.error("Erro ao carregar projetos do Supabase:", err)),
-        loadTransactions().catch((err) => console.error("Erro ao carregar transações do Supabase:", err)),
-        loadAccounts().catch((err) => console.error("Erro ao carregar contas do Supabase:", err)),
-        loadCategories().catch((err) => console.error("Erro ao carregar categorias do Supabase:", err)),
-        loadReceivables().catch((err) => console.error("Erro ao carregar contas a ver/receber do Supabase:", err)),
-        loadNotifications().catch((err) => console.error("Erro ao carregar notificações do Supabase:", err)),
-        loadProfiles().catch((err) => console.error("Erro ao carregar perfis do Supabase:", err)),
-      ]);
+      const fallback = await checkSupabaseOfflineOrMissing();
+      setUseLocalFallback(fallback);
+
+      if (fallback) {
+        loadFromLocalStorage();
+      } else {
+        await Promise.all([
+          loadProjects().catch((err) => console.error("Erro ao carregar projetos do Supabase:", err)),
+          loadTransactions().catch((err) => console.error("Erro ao carregar transações do Supabase:", err)),
+          loadAccounts().catch((err) => console.error("Erro ao carregar contas do Supabase:", err)),
+          loadCategories().catch((err) => console.error("Erro ao carregar categorias do Supabase:", err)),
+          loadReceivables().catch((err) => console.error("Erro ao carregar contas a ver/receber do Supabase:", err)),
+          loadNotifications().catch((err) => console.error("Erro ao carregar notificações do Supabase:", err)),
+          loadProfiles().catch((err) => console.error("Erro ao carregar perfis do Supabase:", err)),
+        ]);
+      }
     } catch (e) {
       console.error("Erro no carregamento inicial de dados:", e);
+      setUseLocalFallback(true);
+      loadFromLocalStorage();
     } finally {
       setLoading(false);
     }
@@ -315,6 +509,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [projects]);
 
   const addProject = useCallback(async (p: Partial<Project> & { fromTemplateId?: string }) => {
+    if (useLocalFallback) {
+      const newProj: Project = {
+        id: `proj-${Date.now()}`,
+        name: p.name || "Novo Projeto",
+        description: p.description || "",
+        status: p.status || "planning",
+        startDate: p.startDate ? new Date(p.startDate) : new Date(),
+        endDate: p.endDate ? new Date(p.endDate) : new Date(Date.now() + 30 * 86400000),
+        responsible: (p as any).responsible || "Ana Silva",
+        createdBy: user?.id || "admin",
+        progress: 0,
+        stages: [],
+        project_code: `PRJ-${Math.floor(1000 + Math.random() * 9000)}`,
+        initial_investment: Number(p.initial_investment || 0),
+        is_template: !!p.is_template,
+      } as any;
+
+      if (p.fromTemplateId) {
+        const tpl = [...projects, ...templates].find((t) => t.id === p.fromTemplateId);
+        if (tpl) {
+          newProj.stages = tpl.stages.map((s, idx) => ({
+            id: `stage-${Date.now()}-${idx}`,
+            name: s.name,
+            order: s.order,
+            tasks: s.tasks.map((t, tIdx) => ({
+              id: `task-${Date.now()}-${idx}-${tIdx}`,
+              name: t.name,
+              description: t.description || "",
+              responsible: t.responsible || "Ana Silva",
+              priority: t.priority || "medium",
+              status: "todo",
+              startDate: new Date(),
+              endDate: new Date(Date.now() + 7 * 86400000),
+              comments: [],
+              dependencies: []
+            }))
+          }));
+        }
+      }
+
+      if (newProj.is_template) {
+        setTemplates((prev) => [newProj, ...prev]);
+      } else {
+        setProjects((prev) => [newProj, ...prev]);
+      }
+      toast.success("Projeto criado com sucesso!");
+      return;
+    }
+
     const { data, error } = await supabase
       .from("projects")
       .insert({
@@ -360,9 +603,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     toast.success("Projeto criado com sucesso!");
     await loadProjects();
-  }, [user, projects, templates]);
+  }, [user, projects, templates, useLocalFallback]);
 
   const updateProject = useCallback(async (id: string, data: Partial<Project>) => {
+    if (useLocalFallback) {
+      const updateFn = (list: Project[]) => list.map((p) => {
+        if (p.id !== id) return p;
+        return {
+          ...p,
+          ...data,
+          startDate: data.startDate ? new Date(data.startDate) : p.startDate,
+          endDate: data.endDate ? new Date(data.endDate) : p.endDate,
+        };
+      });
+      setProjects((prev) => updateFn(prev));
+      setTemplates((prev) => updateFn(prev));
+      toast.success("Projeto atualizado!");
+      return;
+    }
+
     const updates: any = {};
     if (data.name !== undefined) updates.name = data.name;
     if (data.description !== undefined) updates.description = data.description;
@@ -376,25 +635,102 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (error) { toast.error("Erro ao atualizar projeto"); return; }
     toast.success("Projeto atualizado!");
     await loadProjects();
-  }, []);
+  }, [useLocalFallback]);
 
   const updateProjectInvestment = useCallback(async (id: string, value: number) => {
+    if (useLocalFallback) {
+      const updateFn = (list: Project[]) => list.map((p) => p.id === id ? { ...p, initial_investment: value } : p);
+      setProjects((prev) => updateFn(prev));
+      setTemplates((prev) => updateFn(prev));
+      toast.success("Investimento atualizado!");
+      return;
+    }
+
     const { error } = await supabase.from("projects").update({ initial_investment: value }).eq("id", id);
     if (error) { toast.error("Erro ao salvar investimento"); return; }
     toast.success("Investimento atualizado!");
     await loadProjects();
-  }, []);
+  }, [useLocalFallback]);
 
   const addStage = useCallback(async (projectId: string, name: string) => {
+    if (useLocalFallback) {
+      const updateFn = (list: Project[]) => list.map((p) => {
+        if (p.id !== projectId) return p;
+        const newStage = {
+          id: `stage-${Date.now()}`,
+          name,
+          order: p.stages.length,
+          tasks: []
+        };
+        return {
+          ...p,
+          stages: [...p.stages, newStage]
+        };
+      });
+      setProjects((prev) => updateFn(prev));
+      setTemplates((prev) => updateFn(prev));
+      toast.success("Etapa adicionada!");
+      return;
+    }
+
     const proj = projects.find((p) => p.id === projectId);
     const order = proj ? proj.stages.length : 0;
     const { error } = await supabase.from("project_stages").insert({ project_id: projectId, name, order });
     if (error) { toast.error("Erro ao criar etapa"); return; }
     toast.success("Etapa adicionada!");
     await loadProjects();
-  }, [projects]);
+  }, [projects, useLocalFallback]);
 
   const addTask = useCallback(async (input: { projectId: string; stageId: string; name: string; description?: string; responsibleId?: string | null; priority?: string; startDate?: Date; endDate?: Date }) => {
+    if (useLocalFallback) {
+      const newTask: Task = {
+        id: `task-${Date.now()}`,
+        name: input.name,
+        description: input.description || "",
+        responsible: input.responsibleId || "Ana Silva",
+        startDate: input.startDate ? new Date(input.startDate) : new Date(),
+        endDate: input.endDate ? new Date(input.endDate) : new Date(Date.now() + 7 * 86400000),
+        status: "todo",
+        priority: (input.priority || "medium") as any,
+        comments: [],
+        dependencies: []
+      };
+
+      const updateFn = (list: Project[]) => list.map((p) => {
+        if (p.id !== input.projectId) return p;
+        const updatedStages = p.stages.map((s) => {
+          if (s.id !== input.stageId) return s;
+          return {
+            ...s,
+            tasks: [...s.tasks, newTask]
+          };
+        });
+        
+        // Recalculate progress and status
+        const allTasks = updatedStages.flatMap((stg) => stg.tasks);
+        const total = allTasks.length;
+        const completed = allTasks.filter((t) => t.status === "done").length;
+        const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+        
+        let status = p.status;
+        if (status !== "archived") {
+          status = completed === total && total > 0 ? "completed" : completed > 0 ? "in_progress" : "planning";
+        }
+
+        return {
+          ...p,
+          progress,
+          status,
+          stages: updatedStages
+        };
+      });
+
+      setProjects((prev) => updateFn(prev));
+      setTemplates((prev) => updateFn(prev));
+      toast.success("Tarefa adicionada!");
+      return;
+    }
+
     const { error } = await supabase.from("tasks").insert({
       project_id: input.projectId,
       stage_id: input.stageId,
@@ -411,9 +747,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast.success("Tarefa adicionada!");
     await syncProjectStatus(input.projectId);
     await loadProjects();
-  }, [user]);
+  }, [user, useLocalFallback, projects, templates]);
 
   const duplicateProject = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      const source = [...projects, ...templates].find((p) => p.id === id);
+      if (!source) return;
+      await addProject({
+        name: `${source.name} (cópia)`,
+        description: source.description,
+        status: "planning" as any,
+        progress: 0,
+        startDate: new Date(),
+        endDate: new Date(Date.now() + 30 * 86400000),
+        fromTemplateId: id,
+      } as any);
+      return;
+    }
+
     const source = [...projects, ...templates].find((p) => p.id === id);
     if (!source) return;
     await addProject({
@@ -426,9 +777,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       fromTemplateId: id,
     } as any);
     toast.success("Projeto duplicado!");
-  }, [projects, templates, addProject]);
+  }, [projects, templates, addProject, useLocalFallback]);
 
   const saveProjectAsTemplate = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      const source = projects.find((p) => p.id === id);
+      if (!source) return;
+      const tpl: Project = {
+        ...source,
+        id: `tpl-${Date.now()}`,
+        name: `${source.name} (modelo)`,
+        isTemplate: true,
+        project_code: `TPL-${Math.floor(1000 + Math.random() * 9000)}`
+      } as any;
+      setTemplates((prev) => [tpl, ...prev]);
+      toast.success("Modelo salvo!");
+      return;
+    }
+
     const source = projects.find((p) => p.id === id);
     if (!source) return;
     const { data, error } = await supabase.from("projects").insert({
@@ -466,14 +832,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     toast.success("Modelo salvo!");
     await loadProjects();
-  }, [projects, user]);
+  }, [projects, user, useLocalFallback]);
 
   const archiveProject = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      await updateProject(id, { status: "archived" as any });
+      return;
+    }
+
     await updateProject(id, { status: "archived" as any });
     toast.success("Projeto arquivado!");
-  }, [updateProject]);
+  }, [updateProject, useLocalFallback]);
 
   const syncProjectStatus = async (projectId: string) => {
+    if (useLocalFallback) return;
     try {
       const { data: projectData } = await supabase
         .from("projects")
@@ -517,6 +889,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateTask = useCallback(async (projectId: string, taskId: string, data: Partial<Task>) => {
+    if (useLocalFallback) {
+      const updateFn = (list: Project[]) => list.map((p) => {
+        if (p.id !== projectId) return p;
+        const updatedStages = p.stages.map((s) => ({
+          ...s,
+          tasks: s.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            return {
+              ...t,
+              ...data,
+              startDate: data.startDate ? new Date(data.startDate) : t.startDate,
+              endDate: data.endDate ? new Date(data.endDate) : t.endDate,
+            };
+          })
+        }));
+
+        const allTasks = updatedStages.flatMap((stg) => stg.tasks);
+        const total = allTasks.length;
+        const completed = allTasks.filter((t) => t.status === "done").length;
+        const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+        
+        let status = p.status;
+        if (status !== "archived") {
+          status = completed === total && total > 0 ? "completed" : completed > 0 ? "in_progress" : "planning";
+        }
+
+        return {
+          ...p,
+          progress,
+          status,
+          stages: updatedStages
+        };
+      });
+
+      setProjects((prev) => updateFn(prev));
+      setTemplates((prev) => updateFn(prev));
+      toast.success("Tarefa atualizada!");
+      return;
+    }
+
     const updates: any = {};
     if (data.name !== undefined) updates.title = data.name;
     if (data.status !== undefined) updates.status = data.status;
@@ -527,36 +939,116 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (error) { toast.error("Erro ao atualizar tarefa"); return; }
     await syncProjectStatus(projectId);
     await loadProjects();
-  }, []);
+  }, [useLocalFallback]);
 
   const deleteTask = useCallback(async (projectId: string, taskId: string) => {
+    if (useLocalFallback) {
+      const updateFn = (list: Project[]) => list.map((p) => {
+        if (p.id !== projectId) return p;
+        const updatedStages = p.stages.map((s) => ({
+          ...s,
+          tasks: s.tasks.filter((t) => t.id !== taskId)
+        }));
+
+        const allTasks = updatedStages.flatMap((stg) => stg.tasks);
+        const total = allTasks.length;
+        const completed = allTasks.filter((t) => t.status === "done").length;
+        const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+        
+        let status = p.status;
+        if (status !== "archived") {
+          status = completed === total && total > 0 ? "completed" : completed > 0 ? "in_progress" : "planning";
+        }
+
+        return {
+          ...p,
+          progress,
+          status,
+          stages: updatedStages
+        };
+      });
+
+      setProjects((prev) => updateFn(prev));
+      setTemplates((prev) => updateFn(prev));
+      toast.success("Tarefa excluída");
+      return;
+    }
+
     const { error } = await supabase.from("tasks").delete().eq("id", taskId);
     if (error) { toast.error("Erro ao excluir tarefa"); return; }
     toast.success("Tarefa excluída");
     await syncProjectStatus(projectId);
     await loadProjects();
-  }, []);
+  }, [useLocalFallback]);
 
   const updateStage = useCallback(async (projectId: string, stageId: string, name: string) => {
+    if (useLocalFallback) {
+      const updateFn = (list: Project[]) => list.map((p) => {
+        if (p.id !== projectId) return p;
+        return {
+          ...p,
+          stages: p.stages.map((s) => s.id === stageId ? { ...s, name } : s)
+        };
+      });
+      setProjects((prev) => updateFn(prev));
+      setTemplates((prev) => updateFn(prev));
+      toast.success("Etapa atualizada");
+      return;
+    }
+
     const { error } = await supabase.from("project_stages").update({ name }).eq("id", stageId);
     if (error) { toast.error("Erro ao atualizar etapa"); return; }
     toast.success("Etapa atualizada");
     await loadProjects();
-  }, []);
+  }, [useLocalFallback]);
 
   const deleteStage = useCallback(async (projectId: string, stageId: string) => {
+    if (useLocalFallback) {
+      const updateFn = (list: Project[]) => list.map((p) => {
+        if (p.id !== projectId) return p;
+        return {
+          ...p,
+          stages: p.stages.filter((s) => s.id !== stageId)
+        };
+      });
+      setProjects((prev) => updateFn(prev));
+      setTemplates((prev) => updateFn(prev));
+      toast.success("Etapa excluída");
+      return;
+    }
+
     const { error: tErr } = await supabase.from("tasks").delete().eq("stage_id", stageId);
     const { error } = await supabase.from("project_stages").delete().eq("id", stageId);
     if (error) { toast.error("Erro ao excluir etapa"); return; }
     toast.success("Etapa excluída");
     await loadProjects();
-  }, []);
+  }, [useLocalFallback]);
 
   const refreshProjects = loadProjects;
   const refreshTransactions = loadTransactions;
   const refreshAccounts = loadAccounts;
 
   const addTransaction = useCallback(async (t: Omit<Transaction, "id">) => {
+    if (useLocalFallback) {
+      const newTx: Transaction = {
+        id: `tx-${Date.now()}`,
+        type: t.type,
+        projectId: t.projectId || null,
+        accountId: t.accountId || "",
+        categoryId: t.categoryId || "",
+        value: t.value,
+        date: t.date || new Date(),
+        description: t.description || ""
+      };
+      setTransactions((prev) => [newTx, ...prev]);
+      if (t.accountId) {
+        const delta = t.type === "income" ? t.value : -t.value;
+        setAccounts((prev) => prev.map((a) => a.id === t.accountId ? { ...a, balance: a.balance + delta } : a));
+      }
+      toast.success("Movimentação registrada com sucesso!");
+      return;
+    }
+
     const { error } = await supabase.from("financial_transactions").insert({
       type: t.type,
       project_id: t.projectId || null,
@@ -571,9 +1063,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     if (error) { toast.error("Erro ao registrar movimentação"); return; }
     await loadTransactions();
-  }, [user]);
+  }, [user, useLocalFallback]);
 
   const updateAccountBalance = useCallback(async (accountId: string, delta: number) => {
+    if (useLocalFallback) {
+      setAccounts((prev) => prev.map((a) => a.id === accountId ? { ...a, balance: a.balance + delta } : a));
+      return;
+    }
+
     const acc = accounts.find((a) => a.id === accountId);
     if (!acc) return;
     const { error } = await supabase
@@ -582,9 +1079,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .eq("id", accountId);
     if (error) { toast.error("Erro ao atualizar saldo"); return; }
     await loadAccounts();
-  }, [accounts]);
+  }, [accounts, useLocalFallback]);
 
   const addReceivable = useCallback(async (r: Omit<ReceivablePayable, "id">) => {
+    if (useLocalFallback) {
+      const newRec: ReceivablePayable = {
+        id: `rec-${Date.now()}`,
+        date: new Date(),
+        dueDate: r.dueDate || new Date(),
+        description: r.description,
+        type: r.type,
+        status: r.status || "pending",
+        recurrence: r.recurrence || "once",
+        value: r.value,
+        projectId: r.projectId || null,
+        categoryId: r.categoryId || "",
+        accountId: ""
+      };
+      setReceivables((prev) => [newRec, ...prev]);
+      toast.success(r.type === "income" ? "Receita registrada!" : "Despesa registrada!");
+      return;
+    }
+
     const { error } = await supabase.from("financial_entries").insert({
       type: r.type,
       description: r.description,
@@ -598,14 +1114,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (error) { toast.error("Erro ao registrar"); return; }
     toast.success(r.type === "income" ? "Receita registrada!" : "Despesa registrada!");
     await loadReceivables();
-  }, []);
+  }, [useLocalFallback]);
 
   const payReceivable = useCallback(async (id: string, paymentData: { discount: number; interest: number; accountId: string; categoryId: string; projectId: string | null }) => {
+    if (useLocalFallback) {
+      const item = receivables.find((r) => r.id === id);
+      if (!item) return;
+      const finalValue = item.value - paymentData.discount + paymentData.interest;
+
+      const newTx: Transaction = {
+        id: `tx-${Date.now()}`,
+        type: item.type === "income" ? "income" : "expense",
+        projectId: paymentData.projectId || null,
+        accountId: paymentData.accountId,
+        categoryId: paymentData.categoryId,
+        value: finalValue,
+        date: new Date(),
+        description: item.description
+      };
+      setTransactions((prev) => [newTx, ...prev]);
+
+      const delta = item.type === "income" ? finalValue : -finalValue;
+      setAccounts((prev) => prev.map((a) => a.id === paymentData.accountId ? { ...a, balance: a.balance + delta } : a));
+
+      setReceivables((prev) => prev.map((r) => r.id === id ? { ...r, status: "paid" } : r));
+      toast.success(item.type === "income" ? "Recebimento confirmado!" : "Pagamento confirmado!");
+      return;
+    }
+
     const item = receivables.find((r) => r.id === id);
     if (!item) return;
     const finalValue = item.value - paymentData.discount + paymentData.interest;
 
-    // Create transaction
     await addTransaction({
       type: item.type === "income" ? "income" : "expense",
       projectId: paymentData.projectId,
@@ -616,16 +1156,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       description: item.description,
     });
 
-    // Update balance
     await updateAccountBalance(paymentData.accountId, item.type === "income" ? finalValue : -finalValue);
 
-    // Update entry status
-    await supabase.from("financial_entries").update({ status: "paid" }).eq("id", id);
+    const { error } = await supabase.from("financial_entries").update({ status: "paid" }).eq("id", id);
+    if (error) { toast.error("Erro ao atualizar status"); return; }
     toast.success(item.type === "income" ? "Recebimento confirmado!" : "Pagamento confirmado!");
     await loadReceivables();
-  }, [receivables, addTransaction, updateAccountBalance]);
+  }, [receivables, addTransaction, updateAccountBalance, useLocalFallback]);
 
   const addTaskMessage = useCallback(async (msg: { taskId: string; author: string; text: string }) => {
+    if (useLocalFallback) {
+      const newMsg: TaskMessage = {
+        id: `msg-${Date.now()}`,
+        taskId: msg.taskId,
+        author: user?.email || msg.author || "Usuário",
+        text: msg.text,
+        date: new Date()
+      };
+      setTaskMessages((prev) => [...prev, newMsg]);
+      toast.success("Mensagem enviada!");
+      return;
+    }
+
     const { error } = await supabase.from("task_messages").insert({
       task_id: msg.taskId,
       sender_id: user?.id || msg.author,
@@ -633,9 +1185,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
     if (error) { toast.error("Erro ao enviar mensagem"); return; }
     await loadProjects();
-  }, [user]);
+  }, [user, useLocalFallback]);
 
   const addNotification = useCallback(async (n: { type: string; title: string; description: string; userId: string; link?: string }) => {
+    if (useLocalFallback) {
+      const newNotif: Notification = {
+        id: `notif-${Date.now()}`,
+        type: n.type as any,
+        title: n.title,
+        description: n.description,
+        date: new Date(),
+        read: false,
+        link: n.link ? { projectId: n.link, taskId: "" } : undefined
+      };
+      setNotifications((prev) => [newNotif, ...prev]);
+      return;
+    }
+
     await supabase.from("notifications").insert({
       user_id: n.userId,
       type: n.type,
@@ -643,29 +1209,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
       message: n.description,
       link: n.link || "",
     });
-  }, []);
+  }, [useLocalFallback]);
 
   const markNotificationRead = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      return;
+    }
+
     await supabase.from("notifications").update({ read: true }).eq("id", id);
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-  }, []);
+  }, [useLocalFallback]);
 
   const addCategory = useCallback(async (name: string, type: "income" | "expense") => {
+    if (useLocalFallback) {
+      const newCat: Category = {
+        id: `cat-${Date.now()}`,
+        name,
+        type
+      };
+      setCategories((prev) => [...prev, newCat]);
+      toast.success("Categoria criada com sucesso!");
+      return;
+    }
+
     const { error } = await supabase.from("financial_categories").insert({ name, type });
     if (error) { toast.error("Erro ao criar categoria"); return; }
     toast.success("Categoria criada com sucesso!");
     await loadCategories();
-  }, []);
+  }, [useLocalFallback]);
 
   return (
     <AppContext.Provider
       value={{
-        projects, templates, transactions, accounts, receivables, categories, taskMessages, notifications, loading, profiles,
+        projects, templates, transactions, accounts, receivables, categories, taskMessages, notifications, loading, profiles, setProfiles,
         addProject, updateProject, updateProjectInvestment, duplicateProject, saveProjectAsTemplate, archiveProject, updateTask, deleteTask, updateStage, deleteStage, addStage, addTask,
         addTransaction, updateAccountBalance,
         addReceivable, payReceivable,
         addTaskMessage, addNotification, markNotificationRead, getProjectCode,
         refreshProjects, refreshTransactions, refreshAccounts, addCategory,
+        useLocalFallback,
       }}
     >
       {children}

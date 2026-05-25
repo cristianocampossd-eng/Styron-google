@@ -45,26 +45,29 @@ export function OSComments({ comments, onAdd, currentUser }: Props) {
     if (!text.trim() && !selectedImage) return;
     
     let uploadedUrl = undefined;
-    if (selectedImage) {
-      setIsUploading(true);
-      try {
+    setIsUploading(true);
+    try {
+      if (selectedImage) {
         const ext = selectedImage.name.split('.').pop() || 'png';
         const path = `chat-images/${crypto.randomUUID()}.${ext}`;
         const { error } = await supabase.storage.from("company-assets").upload(path, selectedImage);
-        if (error) throw error;
+        if (error) {
+          console.error("Erro no upload do chat-images:", error);
+          throw error;
+        }
         const { data } = supabase.storage.from("company-assets").getPublicUrl(path);
         uploadedUrl = data.publicUrl;
-      } catch (e) {
-        toast.error("Erro ao enviar imagem");
-        setIsUploading(false);
-        return;
       }
-    }
 
-    onAdd(text.trim() || "Imagem", uploadedUrl);
-    setText("");
-    removeImage();
-    setIsUploading(false);
+      onAdd(text.trim() || "Imagem", uploadedUrl);
+      setText("");
+      removeImage();
+    } catch (e) {
+      console.error("Erro ao enviar mensagem com imagem:", e);
+      toast.error("Erro ao enviar imagem ou comentário");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
