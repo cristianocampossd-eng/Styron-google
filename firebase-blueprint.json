@@ -1,0 +1,390 @@
+{
+  "entities": {
+    "profiles": {
+      "title": "Profile",
+      "description": "User profiles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "avatar_url": { "type": "string" },
+        "phone": { "type": "string" },
+        "blocked": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name"]
+    },
+    "user_roles": {
+      "title": "UserRole",
+      "description": "Mapping of users to permissions or standard roles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "operational", "user"] }
+      },
+      "required": ["user_id", "role"]
+    },
+    "company_settings": {
+      "title": "CompanySetting",
+      "description": "Global company visual and branding details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "logo_url": { "type": "string" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "user_permissions": {
+      "title": "UserPermission",
+      "description": "Granular user permissions for modules",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "module": { "type": "string" },
+        "granted": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "module", "granted"]
+    },
+    "projects": {
+      "title": "Project",
+      "description": "Client project record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "project_code": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "progress": { "type": "integer" },
+        "start_date": { "type": "string" },
+        "end_date": { "type": "string" },
+        "responsible_id": { "type": "string" },
+        "archived": { "type": "boolean" },
+        "created_by": { "type": "string" },
+        "initial_investment": { "type": "number" },
+        "is_template": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "status"]
+    },
+    "project_stages": {
+      "title": "ProjectStage",
+      "description": "Stages or milestones of a project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "project_id": { "type": "string" },
+        "name": { "type": "string" },
+        "order": { "type": "integer" },
+        "responsible_id": { "type": "string" },
+        "start_date": { "type": "string" },
+        "end_date": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["project_id", "name"]
+    },
+    "tasks": {
+      "title": "Task",
+      "description": "Specific task associated with a project stage",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "stage_id": { "type": "string" },
+        "project_id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": "string" },
+        "responsible_id": { "type": "string" },
+        "start_date": { "type": "string" },
+        "end_date": { "type": "string" },
+        "progress": { "type": "integer" },
+        "created_by": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["project_id", "title"]
+    },
+    "task_messages": {
+      "title": "TaskMessage",
+      "description": "Comments or messages on tasks",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "task_id": { "type": "string" },
+        "sender_id": { "type": "string" },
+        "message": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["task_id", "sender_id", "message"]
+    },
+    "financial_accounts": {
+      "title": "FinancialAccount",
+      "description": "Bank and cash accounts list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "agency": { "type": "string" },
+        "account_number": { "type": "string" },
+        "balance": { "type": "number" },
+        "notes": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "financial_categories": {
+      "title": "FinancialCategory",
+      "description": "Financial income/expense categories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["expense", "income"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "type"]
+    },
+    "financial_transactions": {
+      "title": "FinancialTransaction",
+      "description": "Financial ledger transactions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["expense", "income"] },
+        "project_id": { "type": "string" },
+        "account_id": { "type": "string" },
+        "category_id": { "type": "string" },
+        "value": { "type": "number" },
+        "description": { "type": "string" },
+        "system_id": { "type": "string" },
+        "affects_system_balance": { "type": "boolean" },
+        "transaction_date": { "type": "string", "format": "date-time" },
+        "created_by": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "value"]
+    },
+    "financial_entries": {
+      "title": "FinancialEntry",
+      "description": "Accounts receivable or payable",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["payable", "receivable"] },
+        "description": { "type": "string" },
+        "recurrence": { "type": "string" },
+        "status": { "type": "string" },
+        "due_date": { "type": "string" },
+        "value": { "type": "number" },
+        "project_id": { "type": "string" },
+        "category_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "description", "value"]
+    },
+    "service_orders": {
+      "title": "ServiceOrder",
+      "description": "Service Orders list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "os_code": { "type": "string" },
+        "project_id": { "type": "string" },
+        "created_by": { "type": "string" },
+        "assigned_to": { "type": "string" },
+        "priority": { "type": "string" },
+        "status": { "type": "string" },
+        "title": { "type": "string" },
+        "observation": { "type": "string" },
+        "completed_by_executor": { "type": "boolean" },
+        "approved_by_creator": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["project_id", "created_by", "assigned_to", "title"]
+    },
+    "service_order_attachments": {
+      "title": "ServiceOrderAttachment",
+      "description": "File attachments for Service Orders",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "service_order_id": { "type": "string" },
+        "file_url": { "type": "string" },
+        "file_type": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["service_order_id", "file_url"]
+    },
+    "notifications": {
+      "title": "Notification",
+      "description": "In-app system notifications for users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "link": { "type": "string" },
+        "read": { "type": "boolean" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "message"]
+    },
+    "company_passwords": {
+      "title": "CompanyPassword",
+      "description": "Secure storage of enterprise credentials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "link": { "type": "string" },
+        "login": { "type": "string" },
+        "pass": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "login", "pass", "category"]
+    },
+    "company_systems": {
+      "title": "CompanySystem",
+      "description": "Enterprise software systems and products worked with",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "initial_balance": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "initial_balance"]
+    },
+    "company_products": {
+      "title": "CompanyProduct",
+      "description": "Enterprise products and services catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "sku": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string" },
+        "system_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "price", "category", "status"]
+    },
+    "company_sales": {
+      "title": "CompanySale",
+      "description": "Lead management and sales closed",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "client_name": { "type": "string" },
+        "company_name": { "type": "string" },
+        "product_id": { "type": "string" },
+        "product_name": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit_price": { "type": "number" },
+        "total_price": { "type": "number" },
+        "stage": { "type": "string" },
+        "seller_id": { "type": "string" },
+        "seller_name": { "type": "string" },
+        "notes": { "type": "string" },
+        "system_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["client_name", "product_id", "product_name", "quantity", "unit_price", "total_price", "stage", "seller_id", "seller_name"]
+    }
+  },
+  "firestore": {
+    "profiles/{profileId}": {
+      "schema": "profiles",
+      "description": "Collection of user profiles"
+    },
+    "user_roles/{roleId}": {
+      "schema": "user_roles",
+      "description": "Security roles associated with users"
+    },
+    "company_settings/{settingId}": {
+      "schema": "company_settings",
+      "description": "Global company settings document"
+    },
+    "user_permissions/{permissionId}": {
+      "schema": "user_permissions",
+      "description": "Granular user permissions mapped to app features"
+    },
+    "projects/{projectId}": {
+      "schema": "projects",
+      "description": "Project management tables"
+    },
+    "project_stages/{stageId}": {
+      "schema": "project_stages",
+      "description": "Milestone stages of projects"
+    },
+    "tasks/{taskId}": {
+      "schema": "tasks",
+      "description": "Action items inside projects"
+    },
+    "task_messages/{messageId}": {
+      "schema": "task_messages",
+      "description": "Thread comments for tasks"
+    },
+    "financial_accounts/{accountId}": {
+      "schema": "financial_accounts",
+      "description": "List of cash and bank ledger balances"
+    },
+    "financial_categories/{categoryId}": {
+      "schema": "financial_categories",
+      "description": "Allowed account ledgers/budgets"
+    },
+    "financial_transactions/{transactionId}": {
+      "schema": "financial_transactions",
+      "description": "Individual payment register logs"
+    },
+    "financial_entries/{entryId}": {
+      "schema": "financial_entries",
+      "description": "Outstanding invoices receivable/payable"
+    },
+    "service_orders/{orderId}": {
+      "schema": "service_orders",
+      "description": "Orders of services linked to contractors"
+    },
+    "service_order_attachments/{attachmentId}": {
+      "schema": "service_order_attachments",
+      "description": "Support graphics or quotes for a service order"
+    },
+    "notifications/{notificationId}": {
+      "schema": "notifications",
+      "description": "Activity alerts for specific users"
+    },
+    "company_passwords/{passwordId}": {
+      "schema": "company_passwords",
+      "description": "Enterprise credentials and service logins"
+    },
+    "company_products/{productId}": {
+      "schema": "company_products",
+      "description": "Products and services offered by the company"
+    },
+    "company_sales/{saleId}": {
+      "schema": "company_sales",
+      "description": "Sales opportunities, leads, and results"
+    },
+    "company_systems/{systemId}": {
+      "schema": "company_systems",
+      "description": "Systems offered and trackable initial balances"
+    }
+  }
+}

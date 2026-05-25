@@ -1,0 +1,373 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default fallback deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // SECURITY IDENTIFIERS AND HELPERS
+    // -------------------------------------------------------------------------
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Authentication roles mapped from `/user_roles`
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'styronoficial@gmail.com' ||
+        request.auth.token.email == 'cristianocampos.sd@gmail.com' ||
+        (exists(/databases/$(database)/documents/user_roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isOperational() {
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/user_roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/user_roles/$(request.auth.uid)).data.role == 'operational')
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // SCHEMAS & ENTITY VALIDATION HELPERS
+    // -------------------------------------------------------------------------
+
+    function isValidProfile(data) {
+      return data.keys().hasAll(['id', 'name']) &&
+             data.id is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
+             (!('avatar_url' in data) || (data.avatar_url is string && data.avatar_url.size() <= 2083)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+             (!('blocked' in data) || (data.blocked is bool));
+    }
+
+    function isValidUserRole(data) {
+      return data.keys().hasAll(['user_id', 'role']) &&
+             data.user_id is string &&
+             data.role is string && (data.role == 'admin' || data.role == 'operational' || data.role == 'user');
+    }
+
+    function isValidCompanySetting(data) {
+      return data.keys().hasAll(['name']) &&
+             data.name is string && data.name.size() <= 100 &&
+             (!('logo_url' in data) || (data.logo_url is string && data.logo_url.size() <= 2083));
+    }
+
+    function isValidUserPermission(data) {
+      return data.keys().hasAll(['user_id', 'module', 'granted']) &&
+             data.user_id is string &&
+             data.module is string &&
+             data.granted is bool;
+    }
+
+    function isValidProject(data) {
+      return data.keys().hasAll(['name', 'status']) &&
+             data.name is string && data.name.size() <= 200 &&
+             data.status is string &&
+             (!('project_code' in data) || data.project_code is string) &&
+             (!('description' in data) || data.description is string) &&
+             (!('progress' in data) || data.progress is int) &&
+             (!('responsible_id' in data) || data.responsible_id is string) &&
+             (!('archived' in data) || data.archived is bool) &&
+             (!('created_by' in data) || data.created_by is string) &&
+             (!('initial_investment' in data) || data.initial_investment is number || data.initial_investment is int) &&
+             (!('is_template' in data) || data.is_template is bool);
+    }
+
+    function isValidProjectStage(data) {
+      return data.keys().hasAll(['project_id', 'name']) &&
+             data.project_id is string &&
+             data.name is string &&
+             (!('order' in data) || data.order is int) &&
+             (!('responsible_id' in data) || data.responsible_id is string);
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll(['project_id', 'title']) &&
+             data.project_id is string &&
+             data.title is string &&
+             (!('stage_id' in data) || data.stage_id is string) &&
+             (!('description' in data) || data.description is string) &&
+             (!('status' in data) || data.status is string) &&
+             (!('priority' in data) || data.priority is string) &&
+             (!('responsible_id' in data) || data.responsible_id is string) &&
+             (!('progress' in data) || data.progress is int) &&
+             (!('created_by' in data) || data.created_by is string);
+    }
+
+    function isValidTaskMessage(data) {
+      return data.keys().hasAll(['task_id', 'sender_id', 'message']) &&
+             data.task_id is string &&
+             data.sender_id is string &&
+             data.message is string;
+    }
+
+    function isValidFinancialAccount(data) {
+      return data.keys().hasAll(['name']) &&
+             data.name is string &&
+             (!('agency' in data) || data.agency is string) &&
+             (!('account_number' in data) || data.account_number is string) &&
+             (!('balance' in data) || data.balance is number || data.balance is int) &&
+             (!('notes' in data) || data.notes is string);
+    }
+
+    function isValidFinancialCategory(data) {
+      return data.keys().hasAll(['name', 'type']) &&
+             data.name is string &&
+             data.type is string && (data.type == 'expense' || data.type == 'income');
+    }
+
+    function isValidFinancialTransaction(data) {
+      return data.keys().hasAll(['type', 'value']) &&
+             data.type is string && (data.type == 'expense' || data.type == 'income') &&
+             (data.value is number || data.value is int) &&
+             (!('project_id' in data) || data.project_id is string) &&
+             (!('account_id' in data) || data.account_id is string) &&
+             (!('category_id' in data) || data.category_id is string) &&
+             (!('description' in data) || data.description is string) &&
+             (!('system_id' in data) || data.system_id is string) &&
+             (!('affects_system_balance' in data) || data.affects_system_balance is bool) &&
+             (!('transaction_date' in data) || data.transaction_date is string) &&
+             (!('created_at' in data) || data.created_at is string) &&
+             (!('created_by' in data) || data.created_by is string);
+    }
+
+    function isValidFinancialEntry(data) {
+      return data.keys().hasAll(['type', 'description', 'value']) &&
+             data.type is string && (data.type == 'payable' || data.type == 'receivable') &&
+             data.description is string &&
+             (data.value is number || data.value is int) &&
+             (!('recurrence' in data) || data.recurrence is string) &&
+             (!('status' in data) || data.status is string) &&
+             (!('due_date' in data) || data.due_date is string) &&
+             (!('project_id' in data) || data.project_id is string) &&
+             (!('category_id' in data) || data.category_id is string);
+    }
+
+    function isValidServiceOrder(data) {
+      return data.keys().hasAll(['project_id', 'created_by', 'assigned_to', 'title']) &&
+             data.project_id is string &&
+             data.created_by is string &&
+             data.assigned_to is string &&
+             data.title is string &&
+             (!('os_code' in data) || data.os_code is string) &&
+             (!('priority' in data) || data.priority is string) &&
+             (!('status' in data) || data.status is string) &&
+             (!('observation' in data) || data.observation is string) &&
+             (!('completed_by_executor' in data) || data.completed_by_executor is bool) &&
+             (!('approved_by_creator' in data) || data.approved_by_creator is bool);
+    }
+
+    function isValidServiceOrderAttachment(data) {
+      return data.keys().hasAll(['service_order_id', 'file_url']) &&
+             data.service_order_id is string &&
+             data.file_url is string &&
+             (!('file_type' in data) || data.file_type is string);
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['user_id', 'message']) &&
+             data.user_id is string &&
+             data.message is string &&
+             (!('type' in data) || data.type is string) &&
+             (!('title' in data) || data.title is string) &&
+             (!('link' in data) || data.link is string) &&
+             (!('read' in data) || data.read is bool);
+    }
+
+    function isValidCompanyPassword(data) {
+      return data.keys().hasAll(['title', 'category', 'login', 'pass']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.category is string &&
+             data.login is string &&
+             data.pass is string &&
+             (!('link' in data) || data.link is string) &&
+             (!('created_at' in data) || data.created_at is string);
+    }
+
+    function isValidCompanySystem(data) {
+      return data.keys().hasAll(['name', 'initial_balance']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             (data.initial_balance is number || data.initial_balance is int) &&
+             (!('created_at' in data) || data.created_at is string);
+    }
+
+    function isValidCompanyProduct(data) {
+      return data.keys().hasAll(['name', 'price', 'category', 'status']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             (data.price is number || data.price is int) &&
+             data.category is string &&
+             data.status is string && (data.status == 'active' || data.status == 'inactive') &&
+             (!('description' in data) || data.description is string) &&
+             (!('sku' in data) || data.sku is string) &&
+             (!('system_id' in data) || data.system_id is string) &&
+             (!('created_at' in data) || data.created_at is string);
+    }
+
+    function isValidCompanySale(data) {
+      return data.keys().hasAll(['client_name', 'product_id', 'product_name', 'quantity', 'unit_price', 'total_price', 'stage', 'seller_id', 'seller_name']) &&
+             data.client_name is string && data.client_name.size() > 0 && data.client_name.size() <= 200 &&
+             data.product_id is string &&
+             data.product_name is string &&
+             (data.quantity is number || data.quantity is int) &&
+             (data.unit_price is number || data.unit_price is int) &&
+             (data.total_price is number || data.total_price is int) &&
+             data.stage is string &&
+             data.seller_id is string &&
+             data.seller_name is string &&
+             (!('company_name' in data) || data.company_name is string) &&
+             (!('notes' in data) || data.notes is string) &&
+             (!('system_id' in data) || data.system_id is string) &&
+             (!('created_at' in data) || data.created_at is string);
+    }
+
+    // -------------------------------------------------------------------------
+    // FIRESTORE COLLECTIONS & POLICIES MATCHES
+    // -------------------------------------------------------------------------
+
+    match /profiles/{profileId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isOwner(profileId) && isValidProfile(incoming());
+      allow update: if isSignedIn() && (isOwner(profileId) || isAdmin()) && isValidProfile(incoming()) && (
+        isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'avatar_url', 'phone'])
+      );
+    }
+
+    match /user_roles/{roleId} {
+      allow read: if isSignedIn() && (isOwner(roleId) || isAdmin());
+      allow create: if (
+        (isAdmin() && isValidUserRole(incoming())) ||
+        (isSignedIn() && isOwner(roleId) && isValidUserRole(incoming()) && (
+          (request.auth.token.email == 'styronoficial@gmail.com' && (incoming().role == 'admin' || incoming().role == 'operational' || incoming().role == 'user')) ||
+          (request.auth.token.email != 'styronoficial@gmail.com' && (incoming().role == 'operational' || incoming().role == 'user'))
+        ))
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    match /company_settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidCompanySetting(incoming());
+    }
+
+    match /user_permissions/{permissionId} {
+      allow read: if isSignedIn() && (isOwner(resource.data.user_id) || isAdmin());
+      allow write: if isAdmin() && isValidUserPermission(incoming());
+    }
+
+    match /projects/{projectId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidProject(incoming());
+    }
+
+    match /project_stages/{stageId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidProjectStage(incoming());
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow create: if isOperational() && isValidTask(incoming());
+      allow update: if isOperational() && isValidTask(incoming()) && (
+        isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['status', 'progress'])
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /task_messages/{messageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isOwner(incoming().sender_id) && isValidTaskMessage(incoming());
+      allow delete: if isAdmin() || isOwner(existing().sender_id);
+    }
+
+    match /financial_accounts/{accountId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidFinancialAccount(incoming());
+    }
+
+    match /financial_categories/{categoryId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidFinancialCategory(incoming());
+    }
+
+    match /financial_transactions/{transactionId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidFinancialTransaction(incoming());
+    }
+
+    match /financial_entries/{entryId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidFinancialEntry(incoming());
+    }
+
+    match /service_orders/{orderId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isOwner(incoming().created_by) && isValidServiceOrder(incoming());
+      allow update: if isSignedIn() && isValidServiceOrder(incoming()) && (
+        isAdmin() ||
+        (isOwner(existing().created_by) && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'observation', 'priority', 'assigned_to', 'status', 'approved_by_creator'
+        ])) ||
+        (isOwner(existing().assigned_to) && incoming().diff(existing()).affectedKeys().hasOnly([
+          'completed_by_executor', 'status'
+        ]))
+      );
+      allow delete: if isAdmin() || (isSignedIn() && isOwner(existing().created_by));
+    }
+
+    match /service_order_attachments/{attachmentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidServiceOrderAttachment(incoming());
+      allow delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && isOwner(resource.data.user_id);
+      allow create: if isSignedIn() && isValidNotification(incoming());
+      allow update: if isSignedIn() && isOwner(resource.data.user_id) && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && isOwner(resource.data.user_id);
+    }
+
+    match /company_passwords/{passwordId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() && isValidCompanyPassword(incoming());
+    }
+
+    match /company_products/{productId} {
+      allow read: if isSignedIn();
+      allow write: if isOperational() && isValidCompanyProduct(incoming());
+    }
+
+    match /company_sales/{saleId} {
+      allow read: if isSignedIn();
+      allow write: if isOperational() && isValidCompanySale(incoming());
+    }
+
+    match /company_systems/{systemId} {
+      allow read: if isSignedIn();
+      allow write: if isOperational() && isValidCompanySystem(incoming());
+    }
+  }
+}

@@ -1,0 +1,515 @@
+import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "./AuthContext";
+import { useApp } from "./AppContext";
+
+export type OSStatus = "sent" | "received" | "in_progress" | "awaiting_adjustment" | "completed" | "archived";
+export type OSPriority = "low" | "medium" | "high" | "urgent";
+
+export interface OSAttachment {
+  id: string;
+  name: string;
+  type: "image" | "video" | "file";
+  url: string;
+}
+
+export interface OSComment {
+  id: string;
+  author: string;
+  authorId?: string;
+  text: string;
+  date: Date;
+  imageUrl?: string;
+}
+
+export interface OSTimelineEntry {
+  id: string;
+  action: string;
+  user: string;
+  date: Date;
+  details?: string;
+}
+
+const safeParseDate = (date: any) => {
+  if (date instanceof Date) return date;
+  const parsed = new Date(date);
+  return isNaN(parsed.getTime()) ? new Date() : parsed;
+};
+
+export interface DeadlineExtensionRequest {
+  requestedDate: Date;
+  justification: string;
+  status: "pending" | "approved" | "rejected";
+  dateRequested: Date;
+}
+
+export interface ServiceOrder {
+  id: string;
+  number: string;
+  projectId: string;
+  title: string;
+  description: string;
+  priority: OSPriority;
+  status: OSStatus;
+  creator: string;
+  responsible: string;
+  createdAt: Date;
+  updatedAt: Date;
+  attachments: OSAttachment[];
+  comments: OSComment[];
+  timeline: OSTimelineEntry[];
+  dueDate?: Date;
+  deadlineExtensionRequest?: DeadlineExtensionRequest;
+}
+
+const parseObservation = (obs: string | null) => {
+  if (!obs) return { description: "", comments: [], timeline: [] };
+  try {
+    const parsed = JSON.parse(obs);
+    if (parsed && typeof parsed === "object" && typeof parsed.text === "string") {
+      return {
+        description: parsed.text,
+        dueDate: parsed.dueDate ? new Date(parsed.dueDate) : undefined,
+        deadlineExtensionRequest: parsed.extensionRequest ? {
+          ...parsed.extensionRequest,
+          requestedDate: new Date(parsed.extensionRequest.requestedDate),
+          dateRequested: new Date(parsed.extensionRequest.dateRequested)
+        } : undefined,
+        comments: Array.isArray(parsed.comments) ? parsed.comments.map((c: any) => ({...c, date: safeParseDate(c.date)})) : [],
+        timeline: Array.isArray(parsed.timeline) ? parsed.timeline.map((t: any) => ({
+          ...t, 
+          action: t.action || t.description || "Ação realizada", 
+          date: safeParseDate(t.date)
+        })) : [],
+      };
+    }
+  } catch (e) {
+    // Ignore, fallback to plain text
+  }
+  return { description: obs, comments: [], timeline: [] };
+};
+
+const stringifyObservation = (desc: string, dueDate?: Date, extReq?: DeadlineExtensionRequest, comments: OSComment[] = [], timeline: OSTimelineEntry[] = []) => {
+  return JSON.stringify({
+    text: desc,
+    dueDate: dueDate ? dueDate.toISOString() : undefined,
+    extensionRequest: extReq ? {
+      ...extReq,
+      requestedDate: extReq.requestedDate.toISOString(),
+      dateRequested: extReq.dateRequested.toISOString(),
+    } : undefined,
+    comments,
+    timeline,
+  });
+};
+
+export interface OSNotification {
+  id: string;
+  osId: string;
+  message: string;
+  date: Date;
+  read: boolean;
+  user: string;
+}
+
+export const osStatusLabels: Record<OSStatus, string> = {
+  sent: "Enviado",
+  received: "Recebida",
+  in_progress: "Em execução",
+  awaiting_adjustment: "Aguardando ajuste",
+  completed: "Concluído",
+  archived: "Arquivado",
+};
+
+export const osStatusColors: Record<OSStatus, string> = {
+  sent: "bg-blue-100 text-blue-700",
+  received: "bg-purple-100 text-purple-700",
+  in_progress: "bg-yellow-100 text-yellow-700",
+  awaiting_adjustment: "bg-orange-100 text-orange-700",
+  completed: "bg-green-100 text-green-700",
+  archived: "bg-gray-100 text-gray-500",
+};
+
+export const osPriorityLabels: Record<OSPriority, string> = {
+  low: "Baixa",
+  medium: "Média",
+  high: "Alta",
+  urgent: "Urgente",
+};
+
+export const osPriorityColors: Record<OSPriority, string> = {
+  low: "bg-muted text-muted-foreground",
+  medium: "bg-blue-100 text-blue-700",
+  high: "bg-orange-100 text-orange-700",
+  urgent: "bg-red-100 text-red-700",
+};
+
+const CURRENT_USER_FALLBACK = "Usuário";
+
+interface ServiceOrderContextType {
+  orders: ServiceOrder[];
+  notifications: OSNotification[];
+  currentUser: string;
+  createOrder: (data: { projectId: string; responsible: string; priority: OSPriority; title: string; description: string; dueDate?: Date; attachments?: File[] }) => void;
+  updateStatus: (osId: string, status: OSStatus) => void;
+  reassign: (osId: string, newResponsible: string) => void;
+  addComment: (osId: string, text: string, imageUrl?: string) => void;
+  addAttachment: (osId: string, files: File[]) => Promise<void>;
+  markNotificationRead: (notifId: string) => void;
+  markAllNotificationsRead: () => void;
+  archiveOrder: (osId: string) => void;
+  requestMoreTime: (osId: string, newDate: Date, justification: string) => void;
+  respondTimeRequest: (osId: string, status: "approved" | "rejected", modifiedDate?: Date) => void;
+}
+
+const ServiceOrderContext = createContext<ServiceOrderContextType | null>(null);
+
+export function ServiceOrderProvider({ children }: { children: ReactNode }) {
+  const { user, profile } = useAuth();
+  const { profiles } = useApp();
+  const [orders, setOrders] = useState<ServiceOrder[]>([]);
+  const [notifications, setNotifications] = useState<OSNotification[]>([]);
+  const currentUser = profile?.name || user?.email || CURRENT_USER_FALLBACK;
+  const currentUserId = user?.id || "";
+  
+  const getProfileName = (id: string) => profiles.find((p) => p.id === id)?.name || id;
+
+  useEffect(() => {
+    if (!user) return;
+    loadOrders();
+    loadOSNotifications();
+
+    const channel = supabase
+      .channel("service-orders-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "service_orders" }, () => loadOrders())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
+
+  async function loadOrders() {
+    try {
+      const { data: ordersData } = await supabase.from("service_orders").select("*").order("created_at", { ascending: false });
+      if (!ordersData) return;
+
+      const { data: attachmentsData } = await supabase.from("service_order_attachments").select("*");
+      const attachmentsGrouped = (attachmentsData || []).reduce((acc: any, item: any) => {
+        if (!acc[item.service_order_id]) {
+          acc[item.service_order_id] = [];
+        }
+        acc[item.service_order_id].push(item);
+        return acc;
+      }, {});
+
+      setOrders(
+        ordersData.map((o: any) => {
+          const parsedObs = parseObservation(o.observation);
+          const orderAttachments = attachmentsGrouped[o.id] || [];
+          return {
+            id: o.id,
+            number: o.os_code,
+            projectId: o.project_id,
+            title: o.title || "",
+            description: parsedObs.description,
+            dueDate: parsedObs.dueDate,
+            deadlineExtensionRequest: parsedObs.deadlineExtensionRequest,
+            priority: o.priority as OSPriority,
+            status: o.status as OSStatus,
+            creator: o.created_by,
+            responsible: o.assigned_to,
+            createdAt: new Date(o.created_at),
+            updatedAt: new Date(o.updated_at),
+            attachments: orderAttachments.map((a: any) => ({
+              id: a.id,
+              name: a.file_url.split('/').pop() || 'Arquivo',
+              url: a.file_url,
+              type: a.file_type || 'document'
+            })),
+            comments: parsedObs.comments || [],
+            timeline: parsedObs.timeline || [],
+          };
+        })
+      );
+    } catch (e) {
+      console.error("Erro ao carregar Ordens de Serviço do Firebase:", e);
+    }
+  }
+
+  async function loadOSNotifications() {
+    try {
+      if (!user) return;
+      const { data } = await supabase
+        .from("notifications")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("type", "os")
+        .order("created_at", { ascending: false });
+      if (data) {
+        setNotifications(
+          data.map((n: any) => ({
+            id: n.id,
+            osId: n.link || "",
+            message: n.message,
+            date: new Date(n.created_at),
+            read: n.read,
+            user: currentUser,
+          }))
+        );
+      }
+    } catch (e) {
+      console.error("Erro ao carregar notificações de OS do Supabase:", e);
+    }
+  }
+
+  useEffect(() => {
+    // Check overdue OSs daily logic
+    if (orders.length > 0 && currentUserId) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const checkKey = `lastOverdueCheck_${currentUserId}`;
+      const lastCheck = localStorage.getItem(checkKey);
+
+      if (lastCheck !== todayStr) {
+        const overdueOrders = orders.filter(o => 
+          o.dueDate && 
+          o.dueDate.getTime() < new Date().getTime() &&
+          !['completed', 'archived'].includes(o.status) &&
+          (o.responsible === currentUserId || o.creator === currentUserId)
+        );
+
+        overdueOrders.forEach(async (o) => {
+          await supabase.from("notifications").insert({
+            user_id: currentUserId,
+            type: "os",
+            title: "OS Atrasada - Necessita Atenção",
+            message: `A Ordem de Serviço "${o.title}" (Prazo: ${o.dueDate?.toLocaleDateString()}) encontra-se em atraso!`,
+            link: o.id,
+          });
+        });
+
+        if (overdueOrders.length > 0) {
+          loadOSNotifications(); // Reload to show immediately
+        }
+
+        localStorage.setItem(checkKey, todayStr);
+      }
+    }
+  }, [orders, currentUserId]);
+
+  const createOrder = useCallback(
+    (data: { projectId: string; responsible: string; priority: OSPriority; title: string; description: string; dueDate?: Date; attachments?: File[] }) => {
+      (async () => {
+        const obsPayload = stringifyObservation(data.description, data.dueDate);
+        const { data: inserted, error } = await supabase.from("service_orders").insert({
+          project_id: data.projectId,
+          created_by: currentUserId,
+          assigned_to: data.responsible,
+          priority: data.priority,
+          title: data.title,
+          observation: obsPayload,
+          status: "sent",
+          os_code: "",
+        }).select().single();
+        if (error) return;
+
+      // Create timeline event for creation
+        await supabase.from("service_orders").update({
+          observation: stringifyObservation(data.description, data.dueDate, undefined, [], [{ 
+            id: crypto.randomUUID(), 
+            date: new Date(), 
+            action: "Ordem de Serviço criada", 
+            user: currentUser
+          }])
+        }).eq("id", inserted.id);
+
+        if (data.attachments && data.attachments.length > 0) {
+          for (let file of data.attachments) {
+            const ext = file.name.split('.').pop() || '';
+            const path = `os-attachments/${inserted.id}/${crypto.randomUUID()}.${ext}`;
+            const { error: uploadError } = await supabase.storage.from("company-assets").upload(path, file);
+            if (!uploadError) {
+              const { data: pubData } = supabase.storage.from("company-assets").getPublicUrl(path);
+              await supabase.from("service_order_attachments").insert({
+                service_order_id: inserted.id,
+                file_url: pubData.publicUrl,
+                file_type: file.type || ext
+              });
+            }
+          }
+        }
+        
+        // Create notification for assigned user
+        await supabase.from("notifications").insert({
+          user_id: data.responsible,
+          type: "os",
+          title: "Nova OS recebida",
+          message: `Nova OS: ${data.title}`,
+          link: inserted.id,
+        });
+        await loadOrders();
+        await loadOSNotifications();
+      })();
+    },
+    [currentUserId]
+  );
+
+  const updateStatus = useCallback((osId: string, status: OSStatus) => {
+    (async () => {
+      const os = orders.find(o => o.id === osId);
+      if (!os) return;
+      
+      let newTimeline = [...os.timeline, { id: crypto.randomUUID(), date: new Date(), action: `Status alterado`, user: currentUser, details: `Status alterado para: ${osStatusLabels[status]}` }];
+      const obsPayload = stringifyObservation(os.description, os.dueDate, os.deadlineExtensionRequest, os.comments, newTimeline);
+      
+      await supabase.from("service_orders").update({ status, observation: obsPayload }).eq("id", osId);
+      await loadOrders();
+    })();
+  }, [orders, currentUserId]);
+
+  const reassign = useCallback((osId: string, newResponsible: string) => {
+    (async () => {
+      const os = orders.find(o => o.id === osId);
+      if (!os) return;
+      
+      let newTimeline = [...os.timeline, { id: crypto.randomUUID(), date: new Date(), action: `OS reatribuída`, user: currentUser, details: `atribuída a ${getProfileName(newResponsible)}` }];
+      const obsPayload = stringifyObservation(os.description, os.dueDate, os.deadlineExtensionRequest, os.comments, newTimeline);
+      
+      await supabase.from("service_orders").update({ assigned_to: newResponsible, observation: obsPayload }).eq("id", osId);
+      await supabase.from("notifications").insert({
+        user_id: newResponsible,
+        type: "os",
+        title: "OS reatribuída",
+        message: "Uma OS foi reatribuída para você",
+        link: osId,
+      });
+      await loadOrders();
+    })();
+  }, [orders, currentUserId]);
+
+  const addComment = useCallback((osId: string, text: string, imageUrl?: string) => {
+    (async () => {
+      const os = orders.find(o => o.id === osId);
+      if (!os) return;
+      const newComment = { id: `cm-${Date.now()}`, author: currentUser, authorId: currentUserId, text, date: new Date(), imageUrl };
+      const obsPayload = stringifyObservation(os.description, os.dueDate, os.deadlineExtensionRequest, [...os.comments, newComment], os.timeline);
+      await supabase.from("service_orders").update({ observation: obsPayload }).eq("id", osId);
+
+      // Notification to all involved parties except the author
+      const recipients = new Set<string>();
+      if (os.creator && os.creator !== currentUserId) {
+        recipients.add(os.creator);
+      }
+      if (os.responsible && os.responsible !== currentUserId) {
+        recipients.add(os.responsible);
+      }
+
+      for (const recipientId of recipients) {
+        await supabase.from("notifications").insert({
+          user_id: recipientId,
+          type: "os",
+          title: "Nova mensagem na OS",
+          message: `${currentUser} enviou uma mensagem na OS #${os.number}`,
+          link: os.id
+        });
+      }
+      await loadOrders();
+      await loadOSNotifications();
+    })();
+  }, [orders, currentUser, currentUserId]);
+
+  const markNotificationRead = useCallback((notifId: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === notifId ? { ...n, read: true } : n)));
+  }, []);
+
+  const markAllNotificationsRead = useCallback(() => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  }, []);
+
+  const requestMoreTime = useCallback(async (osId: string, newDate: Date, justification: string) => {
+    const os = orders.find(o => o.id === osId);
+    if (!os) return;
+    const req: DeadlineExtensionRequest = {
+      requestedDate: newDate,
+      justification,
+      status: "pending",
+      dateRequested: new Date()
+    };
+    
+    let newTimeline = [...os.timeline, { id: crypto.randomUUID(), date: new Date(), action: `Prazo solicitado`, user: currentUser, details: `Solicitado novo prazo para ${newDate.toLocaleDateString()}` }];
+    const obsPayload = stringifyObservation(os.description, os.dueDate, req, os.comments, newTimeline);
+    
+    await supabase.from("service_orders").update({ observation: obsPayload }).eq("id", osId);
+    await supabase.from("notifications").insert({
+      user_id: os.creator,
+      type: "os",
+      title: "Solicitação de prazo",
+      message: `OS ${os.title}: Novo prazo solicitado`,
+      link: os.id,
+    });
+  }, [orders, currentUserId]);
+
+  const respondTimeRequest = useCallback(async (osId: string, status: "approved" | "rejected", modifiedDate?: Date) => {
+    const os = orders.find(o => o.id === osId);
+    if (!os || !os.deadlineExtensionRequest) return;
+    
+    const newDueDate = status === "approved" ? (modifiedDate || os.deadlineExtensionRequest.requestedDate) : os.dueDate;
+    
+    let newTimeline = [...os.timeline, { id: crypto.randomUUID(), date: new Date(), action: `Solicitação de prazo ${status === 'approved' ? 'aprovada' : 'rejeitada'}`, user: currentUser }];
+    const obsPayload = stringifyObservation(os.description, newDueDate, {
+      ...os.deadlineExtensionRequest,
+      status
+    }, os.comments, newTimeline);
+    
+    await supabase.from("service_orders").update({ observation: obsPayload }).eq("id", osId);
+    await supabase.from("notifications").insert({
+      user_id: os.responsible,
+      type: "os",
+      title: `Prazo ${status === "approved" ? "aprovado" : "rejeitado"}`,
+      message: `OS ${os.title}: Sua solicitação de prazo foi ${status === "approved" ? "aprovada" : "rejeitada"}`,
+      link: os.id,
+    });
+  }, [orders, currentUserId]);
+
+  const addAttachment = useCallback(async (osId: string, files: File[]) => {
+    if (!files || files.length === 0) return;
+    
+    const os = orders.find(o => o.id === osId);
+    if (!os) return;
+
+    for (let file of files) {
+      const ext = file.name.split('.').pop() || '';
+      const path = `os-attachments/${os.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("company-assets").upload(path, file);
+      if (!uploadError) {
+        const { data: pubData } = supabase.storage.from("company-assets").getPublicUrl(path);
+        await supabase.from("service_order_attachments").insert({
+          service_order_id: os.id,
+          file_url: pubData.publicUrl,
+          file_type: file.type || ext
+        });
+      }
+    }
+
+    let newTimeline = [...os.timeline, { id: crypto.randomUUID(), date: new Date(), action: `Upload de anexo`, user: currentUser, details: `${files.length} arquivo(s) anexado(s)` }];
+    const obsPayload = stringifyObservation(os.description, os.dueDate, os.deadlineExtensionRequest, os.comments, newTimeline);
+    await supabase.from("service_orders").update({ observation: obsPayload }).eq("id", os.id);
+
+    await loadOrders();
+  }, [orders, currentUserId]);
+
+  const archiveOrder = useCallback((osId: string) => {
+    updateStatus(osId, "archived");
+  }, [updateStatus]);
+
+  return (
+    <ServiceOrderContext.Provider
+      value={{ orders, notifications, currentUser, createOrder, updateStatus, reassign, addComment, addAttachment, markNotificationRead, markAllNotificationsRead, archiveOrder, requestMoreTime, respondTimeRequest }}
+    >
+      {children}
+    </ServiceOrderContext.Provider>
+  );
+}
+
+export function useServiceOrders() {
+  const ctx = useContext(ServiceOrderContext);
+  if (!ctx) throw new Error("useServiceOrders must be used within ServiceOrderProvider");
+  return ctx;
+}

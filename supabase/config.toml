@@ -1,0 +1,4 @@
+project_id = "dirwtilstfsgjgsaiytg"
+
+[functions.create-user]
+verify_jwt = false
