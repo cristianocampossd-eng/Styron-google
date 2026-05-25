@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { useApp } from "@/contexts/AppContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Lock, Unlock, Shield, KeyRound, UserCog } from "lucide-react";
+import { Plus, Lock, Unlock, Shield, KeyRound, UserCog, Trash2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
 interface UserRow {
@@ -42,6 +42,43 @@ export default function AccountsSettings() {
   const [roleEditUser, setRoleEditUser] = useState<UserRow | null>(null);
   const [selectedRole, setSelectedRole] = useState<string>("operational");
   const [roleSubmitting, setRoleSubmitting] = useState(false);
+
+  // delete user
+  const [deleteUser, setDeleteUser] = useState<UserRow | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteUser = async () => {
+    if (!deleteUser) return;
+    setIsDeleting(true);
+
+    if (useLocalFallback) {
+      const updated = ctxProfiles.filter((p: any) => p.id !== deleteUser.id);
+      setProfiles(updated);
+      localStorage.setItem("styron_profiles", JSON.stringify(updated));
+      setIsDeleting(false);
+      setDeleteUser(null);
+      toast.success("Usuário deletado com sucesso (modo local).");
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.functions.invoke("delete-user", {
+        body: { userId: deleteUser.id }
+      });
+
+      if (error || !data?.success) {
+        toast.error("Erro ao deletar usuário: " + (error?.message || data?.error || "Desconhecido"));
+      } else {
+        toast.success("Usuário deletado com sucesso!");
+        load();
+      }
+    } catch (err: any) {
+      toast.error("Erro de conexão ao deletar: " + err.message);
+    }
+    
+    setIsDeleting(false);
+    setDeleteUser(null);
+  };
 
   const openRoleEdit = (u: UserRow) => {
     setRoleEditUser(u);
@@ -348,7 +385,7 @@ export default function AccountsSettings() {
                           return;
                         }
                         const tid = toast.loading("Enviando e-mail de cadastro...");
-                        const { error } = await supabase.auth.resetPasswordForEmail(u.email!);
+                        const { error } = await supabase.auth.resetPasswordForEmail(u.email!, { redirectTo: `${window.location.origin}/reset-password` });
                         toast.dismiss(tid);
                         if (error) {
                           toast.error("Erro ao enviar e-mail: " + (error.message || "tente de novo"));
@@ -365,6 +402,9 @@ export default function AccountsSettings() {
                   <Button size="sm" variant="outline" onClick={() => openPerms(u)} title="Gerenciar permissões"><Shield className="w-3.5 h-3.5" /></Button>
                   <Button size="sm" variant="outline" onClick={() => toggleBlock(u)} title={u.blocked ? "Desbloquear" : "Bloquear"}>
                     {u.blocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={() => setDeleteUser(u)} title="Deletar usuário">
+                    <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </td>
               </tr>
@@ -469,6 +509,34 @@ export default function AccountsSettings() {
             <Button variant="outline" onClick={() => setRoleEditUser(null)} disabled={roleSubmitting}>Cancelar</Button>
             <Button onClick={handleSaveRole} disabled={roleSubmitting}>
               {roleSubmitting ? "Alterando..." : "Confirmar Alteração"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete User Dialog */}
+      <Dialog open={!!deleteUser} onOpenChange={(open) => !open && setDeleteUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-destructive"><Trash2 className="inline w-4 h-4 mr-1.5" /> Deletar Usuário</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-3">
+            <p className="text-sm">
+              Tem certeza que deseja deletar o usuário <strong>{deleteUser?.name}</strong>?
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Esta ação removerá o usuário do sistema e do banco de dados permanentemente, permitindo que o e-mail seja cadastrado novamente no futuro.
+            </p>
+            {deleteUser?.id === auth.currentUser?.uid && (
+              <p className="text-xs font-semibold text-destructive mt-2">
+                Aviso: Você está tentando deletar sua própria conta.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteUser(null)} disabled={isDeleting}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteUser} disabled={isDeleting}>
+              {isDeleting ? "Deletando..." : "Sim, deletar usuário"}
             </Button>
           </DialogFooter>
         </DialogContent>
