@@ -15,7 +15,9 @@ import {
   CheckCircle,
   XCircle,
   Hash,
-  ShoppingBag
+  ShoppingBag,
+  List,
+  LayoutGrid
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +45,7 @@ export default function Products() {
   const [systems, setSystems] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"card" | "list">("list");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedSystem, setSelectedSystem] = useState("all");
 
@@ -245,7 +248,7 @@ export default function Products() {
 
       {/* Filter Options */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-6">
-        <div className="relative md:col-span-5">
+        <div className="relative md:col-span-4">
           <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Buscar por nome, código SKU, descrição..."
@@ -288,10 +291,26 @@ export default function Products() {
           </Select>
         </div>
 
-        <div className="flex items-center justify-end md:col-span-2">
-          <span className="text-sm font-medium text-muted-foreground">
+        <div className="flex items-center justify-end md:col-span-3 gap-3">
+          <span className="text-sm font-medium text-muted-foreground mr-2">
             Total: {filteredProducts.length}
           </span>
+          <div className="flex bg-muted/30 p-1 border rounded-lg">
+            <button
+              onClick={() => setViewMode("list")}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-white shadow-sm text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              title="Visualização em Lista"
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode("card")}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === "card" ? "bg-white shadow-sm text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              title="Visualização em Cartões"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -310,8 +329,69 @@ export default function Products() {
             </div>
           </CardContent>
         </Card>
+      ) : viewMode === "list" ? (
+        <div className="bg-white border rounded-xl overflow-hidden shadow-sm animate-in fade-in zoom-in-95 duration-200">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b">
+                <tr>
+                  <th className="px-5 py-4">Produto</th>
+                  <th className="px-5 py-4 hidden md:table-cell">Categoria</th>
+                  <th className="px-5 py-4 hidden lg:table-cell">Sistema</th>
+                  <th className="px-5 py-4">Status</th>
+                  <th className="px-5 py-4 text-right">Preço</th>
+                  <th className="px-5 py-4 text-center">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y border-b">
+                {filteredProducts.map((prod) => (
+                  <tr key={prod.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-5 py-4">
+                      <div className="font-bold text-slate-800">
+                        {prod.name}
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1 font-mono">SKU: {prod.sku}</div>
+                    </td>
+                    <td className="px-5 py-4 hidden md:table-cell">
+                      <span className="inline-flex items-center gap-1 bg-muted text-muted-foreground px-2 py-0.5 rounded text-[10px] font-bold uppercase">
+                        <Tag className="w-3 h-3" /> {prod.category}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 hidden lg:table-cell text-slate-600 font-medium">
+                      {systems.find((s) => s.id === prod.system_id)?.name || "Nenhum"}
+                    </td>
+                    <td className="px-5 py-4">
+                      {prod.status === "active" ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
+                          <CheckCircle className="w-3.5 h-3.5" /> Ativo
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-500 bg-red-50 px-2.5 py-1 rounded-full border border-red-100">
+                          <XCircle className="w-3.5 h-3.5" /> Inativo
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-right font-bold text-slate-800">
+                      {formatPrice(prod.price)}
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <Button variant="ghost" size="icon" className="w-8 h-8 rounded-full text-slate-400 hover:text-primary hover:bg-slate-100" onClick={() => handleEdit(prod)}>
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="w-8 h-8 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50" onClick={() => handleDelete(prod.id, prod.name)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in zoom-in-95 duration-200">
           {filteredProducts.map((prod) => (
             <Card key={prod.id} className="relative flex flex-col hover:shadow-md transition-all border">
               <CardHeader className="pb-3 border-b">

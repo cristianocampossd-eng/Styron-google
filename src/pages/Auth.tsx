@@ -11,7 +11,6 @@ export default function Auth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
@@ -30,28 +29,9 @@ export default function Auth() {
     e.preventDefault();
     setLoading(true);
     try {
-      if (isSignUp) {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              full_name: name,
-            }
-          }
-        });
-        if (error) throw error;
-        if (data?.session) {
-          toast.success("Conta criada e login realizado!");
-        } else {
-          toast.success("Cadastro realizado com sucesso! Verifique seu e-mail ou faça login.");
-          setIsSignUp(false);
-        }
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        toast.success("Login realizado!");
-      }
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      toast.success("Login realizado!");
     } catch (err: any) {
       if (err.code === 'auth/operation-not-allowed' || err.message?.includes('operation-not-allowed')) {
         toast.error(
@@ -90,20 +70,11 @@ export default function Auth() {
           )}
           <h1 className="text-3xl font-bold tracking-tight">{company.name}</h1>
           <p className="text-muted-foreground mt-2">
-            {isSignUp ? "Crie sua conta comercial" : "Entre na sua conta"}
+            Entre na sua conta
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="bg-card rounded-xl border p-6 space-y-4 shadow-sm">
-          {isSignUp && (
-            <div>
-              <Label>Nome Completo</Label>
-              <div className="relative mt-1.5">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" className="pl-9" required />
-              </div>
-            </div>
-          )}
           <div>
             <Label>E-mail</Label>
             <div className="relative mt-1.5">
@@ -118,37 +89,14 @@ export default function Auth() {
               <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="pl-9" required minLength={6} />
             </div>
           </div>
-          {!isSignUp && (
-            <div className="text-right">
-              <button type="button" onClick={() => setForgotOpen(true)} className="text-xs text-primary hover:underline">Esqueci minha senha</button>
-            </div>
-          )}
-          <Button type="submit" className="w-full gap-2 mt-2" disabled={loading}>
-            {isSignUp ? (
-              <>
-                <UserPlus className="w-4 h-4" />
-                {loading ? "Criando conta..." : "Cadastrar conta"}
-              </>
-            ) : (
-              <>
-                <LogIn className="w-4 h-4" />
-                {loading ? "Carregando..." : "Entrar"}
-              </>
-            )}
-          </Button>
-
-          <div className="text-center mt-4 pt-2 border-t text-sm">
-            <button
-              type="button"
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                // Reset errors or fields
-              }}
-              className="text-xs text-muted-foreground hover:text-primary transition-colors focus:outline-none"
-            >
-              {isSignUp ? "Já tem uma conta? Faça Login" : "Ainda não tem conta? Cadastrar-se"}
-            </button>
+          <div className="text-right">
+            <button type="button" onClick={() => setForgotOpen(true)} className="text-xs text-primary hover:underline">Esqueci minha senha</button>
           </div>
+          
+          <Button type="submit" className="w-full gap-2 mt-2" disabled={loading}>
+            <LogIn className="w-4 h-4" />
+            {loading ? "Carregando..." : "Entrar"}
+          </Button>
         </form>
       </div>
 

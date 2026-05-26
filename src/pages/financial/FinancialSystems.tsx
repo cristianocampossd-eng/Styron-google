@@ -110,6 +110,24 @@ export default function FinancialSystems() {
 
   useEffect(() => {
     loadData();
+
+    // Auto-update completely without needing manual sync button
+    const channel = supabase
+      .channel("financial_systems_changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transactions" }, () => {
+        loadData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "company_sales" }, () => {
+        loadData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "company_systems" }, () => {
+        loadData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const getSystemFinancials = (systemId: string) => {
@@ -184,9 +202,6 @@ export default function FinancialSystems() {
             Acompanhe o saldo financeiro de cada sistema em relação a vendas de produtos de software, receitas adicionadas e despesas incidentes.
           </p>
         </div>
-        <Button onClick={loadData} variant="outline" size="sm">
-          Sincronizar Valores
-        </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">

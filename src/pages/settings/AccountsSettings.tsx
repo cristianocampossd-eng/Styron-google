@@ -19,10 +19,43 @@ interface UserRow {
   role: string;
 }
 
-const MODULES = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "financial", label: "Financeiro" },
-  { id: "settings", label: "Configurações" },
+const MODULE_CATEGORIES = [
+  {
+    id: "views",
+    title: "Abas e Telas",
+    perms: [
+      { id: "view_dashboard", label: "Dashboard (Página Inicial)" },
+      { id: "view_sales", label: "Vendas e CRM" },
+      { id: "view_projects", label: "Projetos e Templates" },
+      { id: "view_financial", label: "Financeiro" },
+      { id: "view_systems", label: "Sistemas Financeiros" },
+      { id: "view_products", label: "Produtos" },
+      { id: "view_settings", label: "Configurações" }
+    ]
+  },
+  {
+    id: "actions",
+    title: "Ações do Sistema (Global)",
+    perms: [
+      { id: "action_create", label: "Incluir (Criar novos itens)" },
+      { id: "action_edit", label: "Editar (Modificar itens existentes)" },
+      { id: "action_delete", label: "Excluir (Deletar itens)" }
+    ]
+  },
+  {
+    id: "dashboard_cards",
+    title: "Cards do Dashboard",
+    perms: [
+      { id: "dash_kpi_sales", label: "KPI: Receita e Vendas" },
+      { id: "dash_kpi_os", label: "KPI: Ordens de Serviço (OS)" },
+      { id: "dash_kpi_finance", label: "KPI: Financeiro" },
+      { id: "dash_kpi_products", label: "KPI: Produtos e Sistemas" },
+      { id: "dash_chart_evolution", label: "Gráfico: Evolução de Vendas" },
+      { id: "dash_chart_systems", label: "Gráfico: Distribuição por Sistema" },
+      { id: "dash_list_os", label: "Lista: Ordens de Serviço" },
+      { id: "dash_list_sales", label: "Lista: Oportunidades Em Aberto" }
+    ]
+  }
 ];
 
 export default function AccountsSettings() {
@@ -62,20 +95,50 @@ export default function AccountsSettings() {
     }
 
     try {
-      const { data, error } = await supabase.functions.invoke("delete-user", {
-        body: { userId: deleteUser.id }
-      });
+      console.log("Tentando deletar usuário via RPC (Database Function)...");
+      const { error } = await supabase.rpc("delete_user_admin", { user_id: deleteUser.id });
 
-      if (error || !data?.success) {
-        toast.error("Erro ao deletar usuário: " + (error?.message || data?.error || "Desconhecido"));
-      } else {
-        toast.success("Usuário deletado com sucesso!");
+      if (!error) {
+        // Just in case cascade is missing, remove the profile manually
+        await supabase.from("profiles").delete().eq("id", deleteUser.id);
+        
+        toast.success("Usuário excluído permanentemente do sistema e do banco!");
         load();
+        setIsDeleting(false);
+        setDeleteUser(null);
+        return;
       }
+      console.warn("RPC delete_user_admin falhou (talvez não configurado):", error);
     } catch (err: any) {
-      toast.error("Erro de conexão ao deletar: " + err.message);
+      console.warn("Sem comunicação com RPC delete_user:", err.message);
     }
-    
+
+    // Fallback: Se não tem RPC, não podemos deletar de auth.users.
+    // Vamos remover o perfil e os papéis, removendo-o do sistema (soft-delete visual)
+    toast.info("Função de exclusão não encontrada no banco. Removendo acesso do usuário...");
+    try {
+      // 1. Remove roles
+      await supabase.from("user_roles").delete().eq("user_id", deleteUser.id);
+      
+      // 2. Remove permissions
+      await supabase.from("user_permissions").delete().eq("user_id", deleteUser.id);
+      
+      // 3. Remove o profile (apaga da lista)
+      const { error: profileError } = await supabase.from("profiles").delete().eq("id", deleteUser.id);
+
+      if (profileError) {
+        throw new Error(profileError.message);
+      }
+
+      toast.success(
+        "Usuário removido do sistema! Observação: O e-mail permanece bloqueado para novos cadastros. Para excluí-lo definitivamente, um administrador da conta Supabase deve apagá-lo no painel de Autenticação.",
+        { duration: 8000 }
+      );
+      load();
+    } catch (fallbackError: any) {
+      toast.error("Erro ao remover usuário: " + fallbackError.message);
+    }
+
     setIsDeleting(false);
     setDeleteUser(null);
   };
@@ -417,8 +480,14 @@ export default function AccountsSettings() {
                   )}
                   <Button size="sm" variant="outline" onClick={() => openRoleEdit(u)} title="Alterar função do usuário"><UserCog className="w-3.5 h-3.5 text-blue-500" /></Button>
                   <Button size="sm" variant="outline" onClick={() => openPerms(u)} title="Gerenciar permissões"><Shield className="w-3.5 h-3.5" /></Button>
-                  <Button size="sm" variant="outline" onClick={() => toggleBlock(u)} title={u.blocked ? "Desbloquear" : "Bloquear"}>
-                    {u.blocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => toggleBlock(u)} 
+                    disabled={u.name?.includes("(Excluído)")}
+                    title={u.name?.includes("(Excluído)") ? "Usuário excluído" : (u.blocked ? "Desbloquear" : "Bloquear")}
+                  >
+                    {u.blocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}
                   </Button>
                   <Button size="sm" variant="destructive" onClick={() => setDeleteUser(u)} title="Deletar usuário">
                     <Trash2 className="w-3.5 h-3.5" />
@@ -476,19 +545,31 @@ export default function AccountsSettings() {
 
       {/* Permissions dialog */}
       <Dialog open={!!permsUser} onOpenChange={() => setPermsUser(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader><DialogTitle>Permissões — {permsUser?.name}</DialogTitle></DialogHeader>
-          <div className="space-y-3 py-2">
-            <p className="text-xs text-muted-foreground">Conceda acesso adicional aos módulos restritos:</p>
-            {MODULES.map((m) => (
-              <div key={m.id} className="flex items-center justify-between border rounded-lg p-3">
-                <span className="text-sm font-medium">{m.label}</span>
-                <Switch checked={!!perms[m.id]} onCheckedChange={(v) => togglePerm(m.id, v)} disabled={permsUser?.role === "admin"} />
+          <div className="flex-1 overflow-y-auto space-y-6 py-2 pr-2">
+            <p className="text-xs text-muted-foreground">
+              Configure detalhadamente o que este usuário pode visualizar ou fazer no sistema. Administradores já possuem acesso total.
+            </p>
+            {MODULE_CATEGORIES.map((cat) => (
+              <div key={cat.id} className="space-y-3">
+                <h4 className="text-sm font-bold text-slate-800">{cat.title}</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {cat.perms.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between border rounded-lg p-3 bg-muted/10">
+                      <span className="text-xs font-medium">{m.label}</span>
+                      <Switch 
+                        checked={!!perms[m.id]} 
+                        onCheckedChange={(v) => togglePerm(m.id, v)} 
+                        disabled={permsUser?.role === "admin"} 
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
-            {permsUser?.role === "admin" && <p className="text-xs text-muted-foreground">Administradores já possuem acesso total.</p>}
           </div>
-          <DialogFooter><Button onClick={() => setPermsUser(null)}>Fechar</Button></DialogFooter>
+          <DialogFooter className="mt-4"><Button onClick={() => setPermsUser(null)}>Concluir</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 

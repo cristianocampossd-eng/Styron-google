@@ -20,7 +20,7 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   role: AppRole;
-  permissions: string[];
+  permissions: Record<string, boolean>;
   canAccess: (module: Module) => boolean;
   reloadProfile: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [role, setRole] = useState<AppRole>("operational");
-  const [permissions, setPermissions] = useState<string[]>([]);
+  const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -131,7 +131,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data, error } = await supabase.from("user_permissions").select("module, granted").eq("user_id", userId);
       if (error) throw error;
-      setPermissions((data || []).filter((p: any) => p.granted).map((p: any) => p.module));
+      const permMap: Record<string, boolean> = {};
+      (data || []).forEach((p: any) => { permMap[p.module] = p.granted; });
+      setPermissions(permMap);
     } catch (e) {
       console.error("Erro ao carregar permissões do Supabase:", e);
     }
@@ -143,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setProfile(null);
     setRole("operational");
-    setPermissions([]);
+    setPermissions({});
   };
 
   const isAdmin = role === "admin";

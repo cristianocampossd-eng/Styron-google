@@ -86,17 +86,40 @@ export default function FinancialAccounts() {
         <Button onClick={() => setCreateOpen(true)}><Plus className="w-4 h-4 mr-2" />Nova conta</Button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {accounts.map((acc) => (
-        <div
-          key={acc.id}
-          onClick={() => setSelected(acc.id)}
-          className="bg-card rounded-xl border p-5 hover:shadow-md cursor-pointer transition-all animate-slide-up"
-        >
-          <p className="text-sm text-muted-foreground">{acc.name}</p>
-          <p className="text-xl font-semibold mt-2">{fmt(acc.balance)}</p>
-          <p className="text-xs text-muted-foreground mt-1">ID: {acc.id}</p>
-        </div>
-      ))}
+      {accounts.map((acc) => {
+        const accTransactionsForTotals = transactions.filter((t) => t.accountId === acc.id);
+        const totalIncome = accTransactionsForTotals
+          .filter((t) => t.type === "income")
+          .reduce((sum, t) => sum + (t.value || 0), 0);
+        const totalExpense = accTransactionsForTotals
+          .filter((t) => t.type === "expense" || t.type === "withdrawal" || t.type === "transfer")
+          .reduce((sum, t) => sum + (t.value || 0), 0);
+
+        return (
+          <div
+            key={acc.id}
+            onClick={() => setSelected(acc.id)}
+            className="bg-card rounded-xl border p-5 hover:shadow-md cursor-pointer transition-all animate-slide-up flex flex-col justify-between space-y-4"
+          >
+            <div>
+              <p className="text-sm text-muted-foreground font-medium">{acc.name}</p>
+              <p className="text-2xl font-bold mt-2 text-foreground">{fmt(acc.balance)}</p>
+              <p className="text-[10px] text-muted-foreground/80 mt-1 font-mono">ID: {acc.id.substring(0, 8)}...</p>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 pt-3 border-t text-xs">
+              <div className="flex flex-col">
+                <span className="text-muted-foreground text-[10px] uppercase font-semibold">Entradas</span>
+                <span className="text-emerald-600 font-bold mt-0.5">+{fmt(totalIncome)}</span>
+              </div>
+              <div className="flex flex-col text-right">
+                <span className="text-muted-foreground text-[10px] uppercase font-semibold">Saídas</span>
+                <span className="text-red-500 font-bold mt-0.5">-{fmt(totalExpense)}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
       {accounts.length === 0 && (
         <p className="text-sm text-muted-foreground col-span-full text-center py-8">Nenhuma conta cadastrada.</p>
       )}

@@ -73,6 +73,8 @@ interface AppContextType {
   addStage: (projectId: string, name: string) => Promise<void>;
   addTask: (input: { projectId: string; stageId: string; name: string; description?: string; responsibleId?: string | null; priority?: string; startDate?: Date; endDate?: Date }) => Promise<void>;
   addTransaction: (t: Omit<Transaction, "id">) => Promise<void>;
+  updateTransaction: (id: string, updated: Partial<Transaction>) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
   updateAccountBalance: (accountId: string, delta: number) => Promise<void>;
   addReceivable: (r: Omit<ReceivablePayable, "id">) => Promise<void>;
   payReceivable: (id: string, paymentData: { discount: number; interest: number; accountId: string; categoryId: string; projectId: string | null }) => Promise<void>;
@@ -1107,6 +1109,68 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await loadTransactions();
   }, [user, useLocalFallback]);
 
+  const updateTransaction = useCallback(async (id: string, updated: Partial<Transaction>) => {
+    if (useLocalFallback) {
+      setTransactions((prev) => prev.map((t) => t.id === id ? { ...t, ...updated } : t));
+      toast.success("Movimentação atualizada!");
+      return;
+    }
+
+    const finalDescription = updated.systemId 
+      ? `${updated.description || ""} [sys:${updated.systemId}:${updated.affectsSystemBalance ? 'y' : 'n'}]`.trim()
+      : updated.description;
+
+    const txPayload: any = {
+      type: updated.type,
+      project_id: updated.projectId || null,
+      account_id: updated.accountId || null,
+      category_id: updated.categoryId || null,
+      value: updated.value,
+      description: finalDescription,
+    };
+    if (updated.date) {
+      txPayload.transaction_date = updated.date.toISOString();
+    }
+    if (updated.systemId !== undefined) {
+      txPayload.system_id = updated.systemId;
+    }
+    if (updated.affectsSystemBalance !== undefined) {
+      txPayload.affects_system_balance = updated.affectsSystemBalance;
+    }
+
+    let { error } = await supabase.from("financial_transactions").update(txPayload).eq("id", id);
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      const { system_id, affects_system_balance, ...cleanPayload } = txPayload;
+      const retryRes = await supabase.from("financial_transactions").update(cleanPayload).eq("id", id);
+      error = retryRes.error;
+    }
+
+    if (error) { 
+      console.error("Erro ao atualizar no Supabase:", error); 
+      toast.error(`Erro ao atualizar movimentação: ${error.message}`); 
+      return; 
+    }
+    toast.success("Movimentação atualizada!");
+    await loadTransactions();
+  }, [useLocalFallback]);
+
+  const deleteTransaction = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      setTransactions((prev) => prev.filter((t) => t.id !== id));
+      toast.success("Movimentação excluída!");
+      return;
+    }
+
+    const { error } = await supabase.from("financial_transactions").delete().eq("id", id);
+    if (error) {
+      console.error("Erro ao excluir no Supabase:", error);
+      toast.error(`Erro ao excluir movimentação: ${error.message}`);
+      return;
+    }
+    toast.success("Movimentação excluída!");
+    await loadTransactions();
+  }, [useLocalFallback]);
+
   const updateAccountBalance = useCallback(async (accountId: string, delta: number) => {
     if (useLocalFallback) {
       setAccounts((prev) => prev.map((a) => a.id === accountId ? { ...a, balance: a.balance + delta } : a));
@@ -1290,7 +1354,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       value={{
         projects, templates, transactions, accounts, receivables, categories, taskMessages, notifications, loading, profiles, setProfiles,
         addProject, updateProject, updateProjectInvestment, duplicateProject, saveProjectAsTemplate, archiveProject, updateTask, deleteTask, updateStage, deleteStage, addStage, addTask,
-        addTransaction, updateAccountBalance,
+        addTransaction, updateTransaction, deleteTransaction, updateAccountBalance,
         addReceivable, payReceivable,
         addTaskMessage, addNotification, markNotificationRead, getProjectCode,
         refreshProjects, refreshTransactions, refreshAccounts, addCategory,

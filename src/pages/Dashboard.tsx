@@ -62,7 +62,7 @@ const fmt = (v: number) =>
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile, canAccess } = useAuth();
   const currentUserId = user?.id || "";
   
   const { projects, transactions, accounts, receivables, categories } = useApp();
@@ -122,6 +122,24 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadDbData();
+
+    // Auto update dashboard when underlying sales, products or systems mutate
+    const channel = supabase
+      .channel("dashboard_db_changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "company_sales" }, () => {
+        loadDbData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "company_products" }, () => {
+        loadDbData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "company_systems" }, () => {
+        loadDbData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleRefresh = async () => {
@@ -845,16 +863,6 @@ export default function Dashboard() {
             <Sliders className="w-4 h-4 text-slate-500" />
             <span>Filtros</span>
           </button>
-
-          {/* Refresh Action button */}
-          <button
-            onClick={handleRefresh}
-            className="flex items-center gap-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white px-4 py-2 text-sm font-bold rounded-xl shadow-md cursor-pointer transition-all active:scale-95 duration-150"
-            id="refresh-dashboard-btn"
-          >
-            <RefreshCw className="w-4 h-4 animate-spin-hover" />
-            <span>Atualizar</span>
-          </button>
         </div>
       </div>
 
@@ -939,114 +947,124 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5" id="dashboard-kpis-container">
         
         {/* Card 1: Receita Total */}
-        <div
-          onClick={() => navigate("/financial")}
-          className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
-          id="kpi-receita-total"
-        >
-          <div className="flex justify-between items-start">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Receita Total</p>
-            <div className="p-2.5 rounded-full bg-emerald-50 text-emerald-500">
-              <DollarSign className="w-5 h-5 font-bold" />
+        {canAccess("dash_kpi_finance") && (
+          <div
+            onClick={() => navigate("/financial")}
+            className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
+            id="kpi-receita-total"
+          >
+            <div className="flex justify-between items-start">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Receita Total</p>
+              <div className="p-2.5 rounded-full bg-emerald-50 text-emerald-500">
+                <DollarSign className="w-5 h-5 font-bold" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{fmt(totalIncome)}</h4>
+              <div className="flex items-center gap-1 mt-1 text-xs text-emerald-600 font-bold">
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>12,5%</span>
+                <span className="text-slate-400 font-medium">vs período anterior</span>
+              </div>
             </div>
           </div>
-          <div className="mt-3">
-            <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{fmt(totalIncome)}</h4>
-            <div className="flex items-center gap-1 mt-1 text-xs text-emerald-600 font-bold">
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>12,5%</span>
-              <span className="text-slate-400 font-medium">vs período anterior</span>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Card 2: Despesa Total */}
-        <div
-          onClick={() => navigate("/financial")}
-          className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
-          id="kpi-despesa-total"
-        >
-          <div className="flex justify-between items-start">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Despesa Total</p>
-            <div className="p-2.5 rounded-full bg-rose-50 text-rose-500">
-              <DollarSign className="w-5 h-5" />
+        {canAccess("dash_kpi_finance") && (
+          <div
+            onClick={() => navigate("/financial")}
+            className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
+            id="kpi-despesa-total"
+          >
+            <div className="flex justify-between items-start">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Despesa Total</p>
+              <div className="p-2.5 rounded-full bg-rose-50 text-rose-500">
+                <DollarSign className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{fmt(totalExpense)}</h4>
+              <div className="flex items-center gap-1 mt-1 text-xs text-rose-600 font-bold">
+                <TrendingDown className="w-3.5 h-3.5" />
+                <span>4,3%</span>
+                <span className="text-slate-400 font-medium">vs período anterior</span>
+              </div>
             </div>
           </div>
-          <div className="mt-3">
-            <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{fmt(totalExpense)}</h4>
-            <div className="flex items-center gap-1 mt-1 text-xs text-rose-600 font-bold">
-              <TrendingDown className="w-3.5 h-3.5" />
-              <span>4,3%</span>
-              <span className="text-slate-400 font-medium">vs período anterior</span>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Card 3: Lucro Liquido */}
-        <div
-          onClick={() => navigate("/financial")}
-          className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
-          id="kpi-lucro-liquido"
-        >
-          <div className="flex justify-between items-start">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lucro Líquido</p>
-            <div className="p-2.5 rounded-full bg-blue-50 text-blue-500">
-              <Activity className="w-5 h-5" />
+        {canAccess("dash_kpi_finance") && (
+          <div
+            onClick={() => navigate("/financial")}
+            className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
+            id="kpi-lucro-liquido"
+          >
+            <div className="flex justify-between items-start">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Lucro Líquido</p>
+              <div className="p-2.5 rounded-full bg-blue-50 text-blue-500">
+                <Activity className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{fmt(netProfit)}</h4>
+              <div className="flex items-center gap-1 mt-1 text-xs text-blue-600 font-bold">
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>28,6%</span>
+                <span className="text-slate-400 font-medium">vs período anterior</span>
+              </div>
             </div>
           </div>
-          <div className="mt-3">
-            <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{fmt(netProfit)}</h4>
-            <div className="flex items-center gap-1 mt-1 text-xs text-blue-600 font-bold">
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>28,6%</span>
-              <span className="text-slate-400 font-medium">vs período anterior</span>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Card 4: Projetos Ativos */}
-        <div
-          onClick={() => navigate("/projects")}
-          className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
-          id="kpi-projetos-ativos"
-        >
-          <div className="flex justify-between items-start">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Projetos Ativos</p>
-            <div className="p-2.5 rounded-full bg-purple-50 text-purple-600">
-              <FolderKanban className="w-5 h-5" />
+        {canAccess("dash_kpi_sales") && (
+          <div
+            onClick={() => navigate("/projects")}
+            className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
+            id="kpi-projetos-ativos"
+          >
+            <div className="flex justify-between items-start">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Projetos Ativos</p>
+              <div className="p-2.5 rounded-full bg-purple-50 text-purple-600">
+                <FolderKanban className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{activeProjectsCount}</h4>
+              <div className="flex items-center gap-1 mt-1 text-xs text-purple-600 font-bold">
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>+3</span>
+                <span className="text-slate-400 font-medium">vs período anterior</span>
+              </div>
             </div>
           </div>
-          <div className="mt-3">
-            <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{activeProjectsCount}</h4>
-            <div className="flex items-center gap-1 mt-1 text-xs text-purple-600 font-bold">
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>+3</span>
-              <span className="text-slate-400 font-medium">vs período anterior</span>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Card 5: OS em Andamento */}
-        <div
-          onClick={() => navigate("/service-orders")}
-          className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
-          id="kpi-os-andamento"
-        >
-          <div className="flex justify-between items-start">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">OS em Andamento</p>
-            <div className="p-2.5 rounded-full bg-amber-50 text-amber-500">
-              <ClipboardList className="w-5 h-5" />
+        {canAccess("dash_kpi_os") && (
+          <div
+            onClick={() => navigate("/service-orders")}
+            className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 block"
+            id="kpi-os-andamento"
+          >
+            <div className="flex justify-between items-start">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">OS em Andamento</p>
+              <div className="p-2.5 rounded-full bg-amber-50 text-amber-500">
+                <ClipboardList className="w-5 h-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{osInProgressCount}</h4>
+              <div className="flex items-center gap-1 mt-1 text-xs text-amber-500 font-bold">
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>+1</span>
+                <span className="text-slate-400 font-medium">vs período anterior</span>
+              </div>
             </div>
           </div>
-          <div className="mt-3">
-            <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{osInProgressCount}</h4>
-            <div className="flex items-center gap-1 mt-1 text-xs text-amber-500 font-bold">
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>+1</span>
-              <span className="text-slate-400 font-medium">vs período anterior</span>
-            </div>
-          </div>
-        </div>
+        )}
 
       </div>
 
@@ -1057,9 +1075,10 @@ export default function Dashboard() {
         <div className="lg:col-span-3 space-y-6" id="dashboard-left-block">
           
           {/* Section 1: Main Charts Row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="charts-first-row">
-            
-            {/* Card A: Receitas vs Despesas (Grouped bars) */}
+          {canAccess("dash_chart_evolution") && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="charts-first-row">
+              
+              {/* Card A: Receitas vs Despesas (Grouped bars) */}
             <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="card-chart-receitas-despesas">
               <div className="flex justify-between items-center mb-4">
                 <div>
@@ -1136,8 +1155,8 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
-
           </div>
+          )}
 
           {/* Section 2: Projects Information Block */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-6" id="projects-second-row">
@@ -1266,9 +1285,10 @@ export default function Dashboard() {
           </div>
 
           {/* Section 3: Group 3 - Finance by Category & Finance by System */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="finance-third-row">
-            
-            {/* Financeiro por Categoria Donut */}
+          {canAccess("dash_chart_systems") && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="finance-third-row">
+              
+              {/* Financeiro por Categoria Donut */}
             <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex flex-col justify-between" id="card-financeiro-categoria">
               <div>
                 <h3 className="font-bold text-base text-slate-800">Financeiro por Categoria</h3>
@@ -1354,8 +1374,8 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
-
           </div>
+          )}
 
           {/* Section 4: Group 4 - Finance by Project & Negotiation Funnel */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="projects-reconciliation-row">
@@ -1580,24 +1600,39 @@ export default function Dashboard() {
             </div>
 
             {/* "OS em Atraso" Alert box widget */}
-            <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-4 mt-4 flex items-center gap-3.5" id="os-atrasadas-callout">
-              <div className="p-3 bg-rose-100 rounded-full text-rose-500 animate-pulse shrink-0">
-                <AlarmClock className="w-5 h-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <span className="text-[10px] uppercase font-bold text-rose-500 tracking-wider">OS em Atraso</span>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <h4 className="text-2xl font-black text-rose-600 font-mono leading-none">3</h4>
-                  <p className="text-xs font-bold text-rose-700/80">OS atrasadas</p>
+            {overdueOrdersCount > 0 ? (
+              <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-4 mt-4 flex items-center gap-3.5" id="os-atrasadas-callout">
+                <div className="p-3 bg-rose-100 rounded-full text-rose-500 animate-pulse shrink-0">
+                  <AlarmClock className="w-5 h-5" />
                 </div>
-                <button 
-                  onClick={() => navigate("/service-orders?filter=overdue")} 
-                  className="text-xs font-bold text-rose-600 underline hover:text-rose-800 transition-colors mt-2 block"
-                >
-                  Ver todas
-                </button>
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] uppercase font-bold text-rose-500 tracking-wider">OS em Atraso</span>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <h4 className="text-2xl font-black text-rose-600 font-mono leading-none">{overdueOrdersCount}</h4>
+                    <p className="text-xs font-bold text-rose-700/80">OS atrasadas</p>
+                  </div>
+                  <button 
+                    onClick={() => navigate("/service-orders?tab=mine")} 
+                    className="text-xs font-bold text-rose-600 underline hover:text-rose-800 transition-colors mt-2 block"
+                  >
+                    Ver todas
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-emerald-50/30 border border-emerald-100 rounded-xl p-4 mt-4 flex items-center gap-3.5" id="os-atrasadas-callout">
+                <div className="p-2.5 bg-emerald-100 rounded-full text-emerald-600 shrink-0">
+                  <CheckCircle className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] uppercase font-bold text-emerald-600 tracking-wider">OS em Dia</span>
+                  <div className="flex items-center mt-0.5">
+                    <h4 className="text-sm font-bold text-emerald-800">Tudo em dia!</h4>
+                  </div>
+                  <p className="text-[11px] text-emerald-700/80 mt-0.5">Nenhuma ordem de serviço pendente atrasada.</p>
+                </div>
+              </div>
+            )}
 
           </div>
 

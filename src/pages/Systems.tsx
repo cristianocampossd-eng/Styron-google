@@ -14,7 +14,9 @@ import {
   Hash,
   Monitor,
   Activity,
-  Coins
+  Coins,
+  LayoutGrid,
+  List
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +36,7 @@ export default function Systems() {
   const [systems, setSystems] = useState<CompanySystem[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"card" | "list">("list");
 
   // Form State
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -184,21 +187,37 @@ export default function Systems() {
       </div>
 
       {/* Filter Options */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="relative md:col-span-3">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
+        <div className="relative w-full md:w-[400px]">
           <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Buscar por nome do sistema..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
+            className="pl-9 w-full"
           />
         </div>
 
-        <div className="flex items-center justify-end">
-          <span className="text-sm font-medium text-muted-foreground">
-            Total: {filteredSystems.length} sistemas encontrados
+        <div className="flex items-center justify-end w-full md:w-auto gap-3">
+          <span className="text-sm font-medium text-muted-foreground mr-2">
+            Total: {filteredSystems.length}
           </span>
+          <div className="flex bg-muted/30 p-1 border rounded-lg shrink-0">
+            <button
+              onClick={() => setViewMode("list")}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-white shadow-sm text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              title="Visualização em Lista"
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode("card")}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === "card" ? "bg-white shadow-sm text-primary" : "text-muted-foreground hover:text-foreground"}`}
+              title="Visualização em Cartões"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -217,8 +236,51 @@ export default function Systems() {
             </div>
           </CardContent>
         </Card>
+      ) : viewMode === "list" ? (
+        <div className="bg-white border rounded-xl overflow-hidden shadow-sm animate-in fade-in zoom-in-95 duration-200">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b">
+                <tr>
+                  <th className="px-5 py-4">Sistema</th>
+                  <th className="px-5 py-4">ID de Integração</th>
+                  <th className="px-5 py-4 text-right">Saldo Inicial</th>
+                  <th className="px-5 py-4 text-center">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y border-b">
+                {filteredSystems.map((sys) => (
+                  <tr key={sys.id} className="hover:bg-slate-50/80 transition-colors">
+                    <td className="px-5 py-4">
+                      <div className="font-bold text-slate-800 flex items-center gap-2">
+                        <Cpu className="w-4 h-4 text-primary" />
+                        {sys.name}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className="text-xs text-slate-500 font-mono">ID: {sys.id.substring(0, 8)}...</span>
+                    </td>
+                    <td className="px-5 py-4 text-right font-bold text-slate-800">
+                      {formatPrice(sys.initial_balance)}
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center justify-center gap-2">
+                        <Button variant="ghost" size="icon" className="w-8 h-8 rounded-full text-slate-400 hover:text-primary hover:bg-slate-100" onClick={() => handleEdit(sys)}>
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="w-8 h-8 rounded-full text-slate-400 hover:text-red-500 hover:bg-red-50" onClick={() => handleDelete(sys.id, sys.name)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in zoom-in-95 duration-200">
           {filteredSystems.map((sys) => (
             <Card key={sys.id} className="relative flex flex-col hover:shadow-md transition-all border">
               <CardHeader className="pb-3 border-b">
