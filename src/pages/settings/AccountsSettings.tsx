@@ -380,20 +380,37 @@ export default function AccountsSettings() {
                       size="sm"
                       variant="outline"
                       onClick={async () => {
+                        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+                        let pass = "";
+                        for (let i = 0; i < 11; i++) {
+                          pass += chars.charAt(Math.floor(Math.random() * chars.length));
+                        }
+                        const tempPassword = pass + "!1a";
+
                         if (useLocalFallback) {
-                          toast.success("Simulação: E-mail de cadastro de senha enviado!");
+                          toast.success("Senha provisória gerada (modo local)!");
+                          setCreatedInfo({ email: u.email!, password: tempPassword });
                           return;
                         }
-                        const tid = toast.loading("Enviando e-mail de cadastro...");
-                        const { error } = await supabase.auth.resetPasswordForEmail(u.email!, { redirectTo: `${window.location.origin}/reset-password` });
-                        toast.dismiss(tid);
-                        if (error) {
-                          toast.error("Erro ao enviar e-mail: " + (error.message || "tente de novo"));
-                        } else {
-                          toast.success("E-mail de cadastro de senha enviado!");
+                        const tid = toast.loading("Gerando senha provisória...");
+                        try {
+                          const { data, error } = await supabase.rpc("reset_user_password", { 
+                            target_user_id: u.id, 
+                            new_password: tempPassword 
+                          });
+                          toast.dismiss(tid);
+                          if (error) {
+                            toast.error("Erro ao gerar senha: " + (error?.message || "Erro de permissão ou configuração."));
+                          } else {
+                            toast.success("Senha provisória gerada com sucesso!");
+                            setCreatedInfo({ email: u.email!, password: tempPassword });
+                          }
+                        } catch (err: any) {
+                          toast.dismiss(tid);
+                          toast.error("Erro de conexão ao gerar senha: " + err.message);
                         }
                       }}
-                      title="Enviar/Reenviar e-mail de cadastro de senha para este usuário"
+                      title="Gerar nova senha provisória"
                     >
                       <KeyRound className="w-3.5 h-3.5 text-amber-500" />
                     </Button>
@@ -439,18 +456,17 @@ export default function AccountsSettings() {
         </DialogContent>
       </Dialog>
 
-      {/* Created info dialog */}
+      {/* Created/Reset info dialog */}
       <Dialog open={!!createdInfo} onOpenChange={() => setCreatedInfo(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle><KeyRound className="inline w-4 h-4 mr-1" /> Usuário cadastrado com sucesso</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle><KeyRound className="inline w-4 h-4 mr-1" /> Acesso gerado com sucesso</DialogTitle></DialogHeader>
           <div className="space-y-2 py-2">
-            <p className="text-sm">Um e-mail para cadastrar a senha foi enviado automaticamente ao usuário no endereço informado.</p>
-            <p className="text-sm">Se desejar, você pode compartilhar os dados provisórios abaixo diretamente com ele:</p>
+            <p className="text-sm">Você pode compartilhar os dados provisórios abaixo diretamente com o usuário:</p>
             <div className="bg-muted rounded p-3 font-mono text-sm">
               <div>E-mail: <strong>{createdInfo?.email}</strong></div>
               <div>Senha provisória: <strong>{createdInfo?.password}</strong></div>
             </div>
-            <p className="text-xs text-muted-foreground">O link recebido por e-mail permite que o usuário cadastre sua senha particular com segurança.</p>
+            <p className="text-xs text-muted-foreground">Oriente o usuário a alterar esta senha e manter o cuidado com suas credenciais.</p>
           </div>
           <DialogFooter>
             <Button onClick={() => setCreatedInfo(null)}>Ok</Button>

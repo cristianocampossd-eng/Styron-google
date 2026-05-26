@@ -11,7 +11,7 @@ import { ImagePreviewModal } from "./ImagePreviewModal";
 
 interface Props {
   comments: OSComment[];
-  onAdd: (text: string, imageUrl?: string) => void;
+  onAdd: (text: string, imageUrl?: string, videoUrl?: string) => void;
   currentUser: string;
 }
 
@@ -23,15 +23,25 @@ export function OSComments({ comments, onAdd, currentUser }: Props) {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (!file.type.startsWith('image/')) {
-        toast.error("Por favor, selecione apenas imagens.");
+      if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+        toast.error("Por favor, selecione apenas imagens ou vídeos.");
+        return;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error("O arquivo selecionado é muito grande. O limite é 500MB.");
         return;
       }
       setSelectedImage(file);
-      setImagePreview(URL.createObjectURL(file));
+      if (file.type.startsWith('image/')) {
+        setImagePreview(URL.createObjectURL(file));
+      } else {
+        setImagePreview(null); // No preview for videos in chat input yet
+      }
     }
   };
 
@@ -49,17 +59,32 @@ export function OSComments({ comments, onAdd, currentUser }: Props) {
     try {
       if (selectedImage) {
         const ext = selectedImage.name.split('.').pop() || 'png';
+        const isVideo = selectedImage.type.startsWith('video/');
         const path = `chat-images/${crypto.randomUUID()}.${ext}`;
-        const { error } = await supabase.storage.from("company-assets").upload(path, selectedImage);
+        
+        const { error } = await supabase.storage.from("company-assets").upload(path, selectedImage, {
+          resumable: true
+        });
         if (error) {
           console.error("Erro no upload do chat-images:", error);
+          if (error.message.includes('exceeded the maximum allowed size')) {
+            toast.error("O arquivo excede o limite permitido (50MB no plano gratuito do Supabase ou limite do bucket).");
+          } else {
+            toast.error(`Falha no upload: ${error.message}`);
+          }
           throw error;
         }
         const { data } = supabase.storage.from("company-assets").getPublicUrl(path);
-        uploadedUrl = data.publicUrl;
+        
+        if (isVideo) {
+          onAdd(text.trim() || "Vídeo", undefined, data.publicUrl);
+        } else {
+          onAdd(text.trim() || "Imagem", data.publicUrl);
+        }
+      } else {
+        onAdd(text.trim(), undefined);
       }
-
-      onAdd(text.trim() || "Imagem", uploadedUrl);
+      
       setText("");
       removeImage();
     } catch (e) {
@@ -89,6 +114,9 @@ export function OSComments({ comments, onAdd, currentUser }: Props) {
                 {c.imageUrl && (
                   <img src={c.imageUrl} alt="Anexo do chat" className="w-full max-w-[200px] rounded-md mb-2 object-cover cursor-pointer hover:opacity-90" onClick={() => setPreviewImage(c.imageUrl || null)} />
                 )}
+                {c.videoUrl && (
+                  <video src={c.videoUrl} controls className="w-full max-w-[250px] rounded-md mb-2" />
+                )}
                 <p className="text-sm whitespace-pre-wrap">{c.text}</p>
                 <p className={`text-[10px] mt-1 text-right ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                   {format(c.date, "dd/MM HH:mm", { locale: ptBR })}
@@ -99,9 +127,19 @@ export function OSComments({ comments, onAdd, currentUser }: Props) {
         })}
       </div>
       
-      {imagePreview && (
+      {imagePreview ? (
         <div className="mb-2 relative inline-block">
           <img src={imagePreview} alt="Preview" className="h-20 rounded-md border object-cover" />
+          <button onClick={removeImage} className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 shadow-sm hover:opacity-80">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      ) : selectedImage && selectedImage.type.startsWith('video/') && (
+        <div className="mb-2 relative inline-block">
+          <div className="h-20 w-32 rounded-md border bg-muted flex flex-col items-center justify-center text-xs text-muted-foreground gap-1">
+            <span>🎥 Vídeo</span>
+            <span className="truncate max-w-[90%]">{selectedImage.name}</span>
+          </div>
           <button onClick={removeImage} className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 shadow-sm hover:opacity-80">
             <X className="w-3 h-3" />
           </button>
@@ -109,7 +147,7 @@ export function OSComments({ comments, onAdd, currentUser }: Props) {
       )}
       
       <div className="flex gap-2 items-end">
-        <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
+        <input type="file" accept="image/*,video/*" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
         <Button variant="outline" size="icon" className="shrink-0" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
           <ImageIcon className="w-4 h-4" />
         </Button>

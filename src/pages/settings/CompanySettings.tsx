@@ -32,9 +32,18 @@ export default function CompanySettings() {
   const handleLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (file.size > 500 * 1024 * 1024) {
+      toast.error("O arquivo é muito grande. O limite é 500MB.");
+      return;
+    }
+
     setUploading(true);
     const path = `logo-${Date.now()}-${file.name}`;
-    const { error } = await supabase.storage.from("company-assets").upload(path, file, { upsert: true });
+    const { error } = await supabase.storage.from("company-assets").upload(path, file, { 
+      upsert: true,
+      resumable: true 
+    });
     if (error) { toast.error("Erro no upload"); setUploading(false); return; }
     const { data } = supabase.storage.from("company-assets").getPublicUrl(path);
     setLogoUrl(data.publicUrl);

@@ -73,7 +73,7 @@ export default function FinancialTransactions() {
       type: formType as any,
       projectId: formProject === "general" ? null : formProject,
       accountId: formAccount,
-      categoryId: formCategory || "cat1",
+      categoryId: formCategory || null,
       value,
       date: new Date(),
       description: formDesc || typeLabels[formType],

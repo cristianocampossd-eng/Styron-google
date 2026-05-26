@@ -1,6 +1,6 @@
 import { format, isPast, isToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { X, UserCircle, Calendar, FolderKanban, RefreshCw, AlertTriangle, Clock, Upload, Download } from "lucide-react";
+import { X, UserCircle, Calendar, FolderKanban, RefreshCw, AlertTriangle, Clock, Upload, Download, Link2, Plus, ExternalLink, Image as ImageIcon, Video, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,7 +23,7 @@ interface Props {
 }
 
 export function OSDetailDrawer({ order, open, onClose }: Props) {
-  const { updateStatus, reassign, addComment, requestMoreTime, respondTimeRequest, addAttachment } = useServiceOrders();
+  const { updateStatus, reassign, addComment, requestMoreTime, respondTimeRequest, addAttachment, addExternalLink } = useServiceOrders();
   const { projects, profiles } = useApp();
   const { user } = useAuth();
   const [reassignUser, setReassignUser] = useState("");
@@ -32,6 +32,10 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
 
+  const [linkMode, setLinkMode] = useState(false);
+  const [linkName, setLinkName] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.length && order) {
       setIsUploading(true);
@@ -39,10 +43,9 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
       try {
         await addAttachment(order.id, Array.from(e.target.files));
         toast.dismiss(loadingToast);
-        toast.success("Anexos adicionados com sucesso!");
       } catch (err) {
         toast.dismiss(loadingToast);
-        toast.error("Erro ao fazer upload");
+        console.error("Erro no upload:", err);
       } finally {
         setIsUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
@@ -97,6 +100,17 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
     setCreatorApproveMode(false);
   };
 
+  const handleAddLink = async () => {
+    if (!linkUrl) {
+      toast.error("Insira a URL do link.");
+      return;
+    }
+    await addExternalLink(order.id, linkName || "Link Externo", linkUrl);
+    setLinkMode(false);
+    setLinkName("");
+    setLinkUrl("");
+  };
+
   const isOverdue = order.dueDate && isPast(order.dueDate) && !isToday(order.dueDate) && !["completed", "archived"].includes(order.status);
 
   return (
@@ -129,10 +143,10 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
               <Calendar className="w-4 h-4" /> {format(order.createdAt, "dd/MM/yyyy", { locale: ptBR })}
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
-              <UserCircle className="w-4 h-4" /> Criador: {getProfileName(order.creator)}
+              <UserCircle className="w-4 h-4" /> Responsável pela OS: {getProfileName(order.creator)}
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
-              <UserCircle className="w-4 h-4" /> Atribuído para: <span className="font-semibold text-foreground">{getProfileName(order.responsible)}</span>
+              <UserCircle className="w-4 h-4" /> Atribuído a: <span className="font-semibold text-foreground">{getProfileName(order.responsible)}</span>
             </div>
             {order.dueDate && (
               <div className={`col-span-2 flex items-center gap-2 font-medium ${isOverdue ? "text-destructive" : "text-muted-foreground"}`}>
@@ -258,23 +272,62 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
               <div className="mt-6 border-t pt-4">
                 <div className="flex items-center justify-between mb-4">
                   <p className="text-sm font-medium">Anexos ({order.attachments.length})</p>
-                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
-                    <Upload className="w-4 h-4 mr-2" />
-                    {isUploading ? "Enviando..." : "Adicionar Arquivo"}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setLinkMode(!linkMode)} disabled={isUploading}>
+                      <Link2 className="w-4 h-4 mr-2" />
+                      Link
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+                      <Upload className="w-4 h-4 mr-2" />
+                      Arquivo
+                    </Button>
+                  </div>
                   <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileUpload} />
                 </div>
+
+                {linkMode && (
+                  <div className="mb-4 bg-muted/50 p-3 rounded-lg flex flex-col gap-2">
+                    <p className="text-xs font-semibold">Adicionar Link Externo</p>
+                    <Input placeholder="Nome (Ex: Video Drive)" value={linkName} onChange={(e) => setLinkName(e.target.value)} className="h-8 text-xs" />
+                    <Input placeholder="URL (https://...)" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} className="h-8 text-xs" />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={handleAddLink}>Adicionar</Button>
+                      <Button size="sm" variant="outline" onClick={() => setLinkMode(false)}>Cancelar</Button>
+                    </div>
+                  </div>
+                )}
                 
                 {order.attachments.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {order.attachments.map((a) => (
-                      <div key={a.id} className="group rounded-lg border bg-muted/30 p-3 flex flex-col items-center justify-center text-center hover:bg-muted transition-colors relative cursor-pointer" onClick={() => a.type.startsWith("image") ? setPreviewImage(a.url) : window.open(a.url, '_blank')}>
+                      <div 
+                        key={a.id} 
+                        className="group rounded-lg border bg-muted/30 p-3 flex flex-col items-center justify-center text-center hover:bg-muted transition-colors relative cursor-pointer" 
+                        onClick={() => {
+                          if (a.type === "image") {
+                            setPreviewImage(a.url);
+                          } else {
+                            window.open(a.url, '_blank');
+                          }
+                        }}
+                      >
                         <div className="mb-2">
-                          {a.type.startsWith("image") ? "📷" : a.type.startsWith("video") ? "🎥" : "📎"}
+                          {a.type === "image" ? <ImageIcon className="w-5 h-5 text-purple-500" /> : 
+                           a.type === "video" ? <Video className="w-5 h-5 text-red-500" /> : 
+                           a.type === "link" ? <ExternalLink className="w-5 h-5 text-blue-500" /> : 
+                           <FileText className="w-5 h-5 text-gray-500" />}
                         </div>
-                        <span className="text-xs text-foreground font-medium line-clamp-1 break-all px-1 max-w-full" title={a.name}>{a.name}</span>
+                        <span className="text-[10px] text-foreground font-medium line-clamp-2 break-all px-1 max-w-full leading-tight" title={a.name}>
+                          {a.name}
+                        </span>
                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                          <Download className="w-5 h-5 text-white" />
+                          {a.type === "link" ? (
+                            <ExternalLink className="w-5 h-5 text-white" />
+                          ) : a.type === "image" ? (
+                            <Plus className="w-5 h-5 text-white" />
+                          ) : (
+                            <Download className="w-5 h-5 text-white" />
+                          )}
                         </div>
                       </div>
                     ))}
@@ -290,7 +343,7 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
               <OSTimeline entries={order.timeline} />
             </TabsContent>
             <TabsContent value="comments" className="mt-3">
-              <OSComments comments={order.comments} onAdd={(text, imageUrl) => addComment(order.id, text, imageUrl)} currentUser={getProfileName(currentUserId)} />
+              <OSComments comments={order.comments} onAdd={(text, imageUrl, videoUrl) => addComment(order.id, text, imageUrl, videoUrl)} currentUser={getProfileName(currentUserId)} />
             </TabsContent>
           </Tabs>
         </div>

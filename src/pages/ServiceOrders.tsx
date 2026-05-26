@@ -135,7 +135,7 @@ export default function ServiceOrders() {
                     <TableHead>Título</TableHead>
                     <TableHead>Prioridade</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Responsável</TableHead>
+                    <TableHead>Atribuído a</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead>Prazo</TableHead>
                     <TableHead className="text-right">Ações</TableHead>

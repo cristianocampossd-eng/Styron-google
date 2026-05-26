@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, LayoutGrid, List, MoreHorizontal, Copy, Archive, FileText, Pencil } from "lucide-react";
 import { statusLabels, type Project, type ProjectStatus } from "@/data/mock";
 import { useApp } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -257,10 +258,27 @@ export default function Projects() {
 }
 
 function ProjectActions({ project }: { project: Project }) {
-  const { duplicateProject, archiveProject, updateProject, saveProjectAsTemplate } = useApp();
+  const { duplicateProject, archiveProject, updateProject, saveProjectAsTemplate, profiles } = useApp();
+  const { isAdmin } = useAuth();
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState(project.name);
   const [editDesc, setEditDesc] = useState(project.description);
+  const [editStart, setEditStart] = useState(project.startDate ? format(project.startDate, "yyyy-MM-dd") : "");
+  const [editEnd, setEditEnd] = useState(project.endDate ? format(project.endDate, "yyyy-MM-dd") : "");
+  const [editResp, setEditResp] = useState(project.responsible || "none");
+  const [editStatus, setEditStatus] = useState<ProjectStatus>(project.status);
+
+  const handleEdit = () => {
+    updateProject(project.id, {
+      name: editName,
+      description: editDesc,
+      status: editStatus,
+      startDate: editStart ? new Date(editStart) : undefined,
+      endDate: editEnd ? new Date(editEnd) : undefined,
+      responsible: editResp !== "none" ? editResp : undefined,
+    });
+    setEditOpen(false);
+  };
 
   return (
     <>
@@ -271,9 +289,19 @@ function ProjectActions({ project }: { project: Project }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => { setEditName(project.name); setEditDesc(project.description); setEditOpen(true); }}>
-          <Pencil className="w-4 h-4 mr-2" /> Editar
-        </DropdownMenuItem>
+        {isAdmin && (
+          <DropdownMenuItem onClick={() => { 
+            setEditName(project.name); 
+            setEditDesc(project.description); 
+            setEditStart(project.startDate ? format(project.startDate, "yyyy-MM-dd") : "");
+            setEditEnd(project.endDate ? format(project.endDate, "yyyy-MM-dd") : "");
+            setEditResp(project.responsible || "none");
+            setEditStatus(project.status);
+            setEditOpen(true); 
+          }}>
+            <Pencil className="w-4 h-4 mr-2" /> Editar
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={() => duplicateProject(project.id)}>
           <Copy className="w-4 h-4 mr-2" /> Duplicar
         </DropdownMenuItem>
@@ -291,10 +319,54 @@ function ProjectActions({ project }: { project: Project }) {
         <div className="space-y-4 py-4">
           <div><Label>Nome</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} className="mt-1.5" /></div>
           <div><Label>Descrição</Label><Textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} className="mt-1.5" /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Data início</Label>
+              <Input type="date" className="mt-1.5" value={editStart} onChange={(e) => setEditStart(e.target.value)} />
+            </div>
+            <div>
+              <Label>Data fim</Label>
+              <Input type="date" className="mt-1.5" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Status</Label>
+              <Select value={editStatus} onValueChange={(val: ProjectStatus) => setEditStatus(val)}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries({
+                    planning: "Planejamento",
+                    active: "Em Andamento",
+                    completed: "Concluído",
+                    onhold: "Paralisado",
+                  }).map(([val, label]) => (
+                    <SelectItem key={val} value={val}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Responsável</Label>
+              <Select value={editResp} onValueChange={setEditResp}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhum</SelectItem>
+                  {profiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button>
-          <Button onClick={() => { updateProject(project.id, { name: editName, description: editDesc }); setEditOpen(false); }}>Salvar</Button>
+          <Button onClick={handleEdit}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

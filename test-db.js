@@ -20,13 +20,22 @@ async function test() {
     'profiles',
     'user_roles',
     'projects',
+    'project_stages',
+    'tasks',
+    'task_messages',
     'financial_accounts',
     'financial_categories',
     'financial_transactions',
     'financial_entries',
     'service_orders',
+    'service_order_attachments',
     'company_settings',
-    'user_permissions'
+    'user_permissions',
+    'notifications',
+    'company_systems',
+    'company_passwords',
+    'company_products',
+    'company_sales'
   ];
 
   for (const t of tables) {

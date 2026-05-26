@@ -30,9 +30,9 @@ interface CompanySale {
 
 interface FinancialTransaction {
   id: string;
+  project_id?: string | null;
   type: "income" | "expense";
   value: number;
-  system_id?: string | null;
   affects_system_balance?: boolean | null;
 }
 
@@ -53,24 +53,24 @@ export default function FinancialSystems() {
     setLoading(true);
     try {
       const [sysRes, prodRes, salesRes, txRes] = await Promise.all([
-        supabase.from("company_systems").select("*").order("name", { ascending: true }),
-        supabase.from("company_products").select("id, name, system_id"),
-        supabase.from("company_sales").select("id, product_id, total_price, stage, system_id"),
-        supabase.from("financial_transactions").select("id, type, value, system_id, affects_system_balance")
+        supabase.from("company_systems" as any).select("*").order("name", { ascending: true }),
+        supabase.from("company_products" as any).select("id, name, system_id"),
+        supabase.from("company_sales" as any).select("id, product_id, total_price, stage, system_id"),
+        supabase.from("financial_transactions" as any).select("id, type, value, project_id")
       ]);
 
-      if (sysRes.error) throw sysRes.error;
-      if (prodRes.error) throw prodRes.error;
-      if (salesRes.error) throw salesRes.error;
-      if (txRes.error) throw txRes.error;
+      if (sysRes.error) { console.error("Error loading systems:", sysRes.error); throw sysRes.error; }
+      if (prodRes.error) { console.error("Error loading products:", prodRes.error); throw prodRes.error; }
+      if (salesRes.error) { console.error("Error loading sales:", salesRes.error); throw salesRes.error; }
+      if (txRes.error) { console.error("Error loading transactions (detailed):", JSON.stringify(txRes.error)); throw txRes.error; }
 
       setSystems(sysRes.data || []);
       setProducts(prodRes.data || []);
       setSales(salesRes.data || []);
       setTransactions(txRes.data || []);
     } catch (err) {
-      console.error("Erro ao carregar dados financeiros dos sistemas:", err);
-      toast.error("Processo falhou ao obter informações financeiras.");
+      console.error("Erro ao carregar dados financeiros dos sistemas (detalhado):", err);
+      toast.error(`Erro ao obter informações financeiras: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
     } finally {
       setLoading(false);
     }
@@ -97,10 +97,13 @@ export default function FinancialSystems() {
       .filter(s => s.stage === "closed_won" || s.stage === "Concluido" || s.stage === "Faturado")
       .reduce((acc, current) => acc + (current.total_price || 0), 0);
 
-    // 3. Transactions linked to this system and affecting balance
-    const systemTx = transactions.filter(t => t.system_id === systemId && t.affects_system_balance === true);
-    const txIncome = systemTx.filter(t => t.type === "income").reduce((acc, t) => acc + (t.value || 0), 0);
-    const txExpense = systemTx.filter(t => t.type === "expense").reduce((acc, t) => acc + (t.value || 0), 0);
+    // 3. Transactions linked to this system (via project_id if implemented in future, for now transactions appear separately)
+    // const systemTx = transactions.filter(t => t.system_id === systemId);
+    
+    // For now, transactions are not linked to systems directly.
+    const systemTx: FinancialTransaction[] = []; 
+    const txIncome = 0;
+    const txExpense = 0;
 
     // 4. Computation
     const totalRevenue = salesRevenue + txIncome;
@@ -123,7 +126,7 @@ export default function FinancialSystems() {
     const value = parseFloat(editValue) || 0;
     try {
       const { error } = await supabase
-        .from("company_systems")
+        .from("company_systems" as any)
         .update({ initial_balance: value })
         .eq("id", editingId);
 

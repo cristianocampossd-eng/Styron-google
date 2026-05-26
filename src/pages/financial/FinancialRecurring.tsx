@@ -63,8 +63,8 @@ export default function FinancialRecurring() {
       recurrence: cRecurrence as any,
       value: parseFloat(cValue) || 0,
       projectId: cProject === "none" ? null : cProject,
-      categoryId: cCategory || "cat1",
-      accountId: cAccount || "acc1",
+      categoryId: cCategory || "",
+      accountId: cAccount || "",
     };
     addReceivable(item);
     setCreateOpen(false);
@@ -77,8 +77,8 @@ export default function FinancialRecurring() {
     payReceivable(payOpen, {
       discount: parseFloat(payDiscount) || 0,
       interest: parseFloat(payInterest) || 0,
-      accountId: payAccount || item?.accountId || "acc1",
-      categoryId: payCategory || item?.categoryId || "cat1",
+      accountId: payAccount || item?.accountId || "",
+      categoryId: payCategory || item?.categoryId || "",
       projectId: item?.projectId || null,
     });
     setPayOpen(null);

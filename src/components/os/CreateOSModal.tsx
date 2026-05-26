@@ -9,7 +9,7 @@ import { useServiceOrders, type OSPriority } from "@/contexts/ServiceOrderContex
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Upload, X } from "lucide-react";
+import { Upload, X, Link as LinkIcon, Plus } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -27,6 +27,9 @@ export function CreateOSModal({ open, onClose }: Props) {
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [links, setLinks] = useState<{ name: string; url: string }[]>([]);
+  const [newLinkName, setNewLinkName] = useState("");
+  const [newLinkUrl, setNewLinkUrl] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = () => { 
@@ -37,23 +40,50 @@ export function CreateOSModal({ open, onClose }: Props) {
     setDueDate("");
     setDescription(""); 
     setFiles([]); 
+    setLinks([]);
+    setNewLinkName("");
+    setNewLinkUrl("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const handleCreate = () => {
-    if (!projectId || !responsible || !title) { toast.error("Preencha os campos obrigatórios."); return; }
-    createOrder({ 
-      projectId, 
-      responsible, 
-      priority, 
-      title, 
-      description,
-      dueDate: dueDate ? new Date(dueDate + "T23:59:59") : undefined,
-      attachments: files
-    });
-    toast.success("Ordem de Serviço criada com sucesso!");
-    reset();
-    onClose();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleCreate = async () => {
+    if (!projectId || !responsible || !title) { 
+      toast.error("Preencha os campos obrigatórios."); 
+      return; 
+    }
+    
+    setIsSubmitting(true);
+    const loadingToast = toast.loading("Criando Ordem de Serviço...");
+    
+    try {
+      const osId = await createOrder({ 
+        projectId, 
+        responsible, 
+        priority, 
+        title, 
+        description,
+        dueDate: dueDate ? new Date(dueDate + "T23:59:59") : undefined,
+        attachments: files,
+        externalLinks: links
+      });
+      
+      if (osId) {
+        toast.dismiss(loadingToast);
+        toast.success("Ordem de Serviço criada com sucesso!");
+        reset();
+        onClose();
+      } else {
+        toast.dismiss(loadingToast);
+      }
+    } catch (error) {
+      toast.dismiss(loadingToast);
+      toast.error("Erro ao criar Ordem de Serviço.");
+      console.error(error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -71,6 +101,21 @@ export function CreateOSModal({ open, onClose }: Props) {
       setFiles((prev) => [...prev, ...newFiles]);
       toast.success(`${newFiles.length} arquivo(s) selecionado(s)`);
     }
+  };
+
+  const addLink = () => {
+    if (!newLinkUrl) {
+      toast.error("Insira a URL do link.");
+      return;
+    }
+    setLinks((prev) => [...prev, { name: newLinkName || "Link Externo", url: newLinkUrl }]);
+    setNewLinkName("");
+    setNewLinkUrl("");
+    toast.success("Link adicionado.");
+  };
+
+  const removeLink = (index: number) => {
+    setLinks((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -95,7 +140,7 @@ export function CreateOSModal({ open, onClose }: Props) {
               </Select>
             </div>
             <div>
-              <Label>Responsável *</Label>
+              <Label>Atribuir a *</Label>
               <Select value={responsible} onValueChange={setResponsible}>
                 <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
                 <SelectContent>
@@ -156,10 +201,35 @@ export function CreateOSModal({ open, onClose }: Props) {
               </div>
             )}
           </div>
+          <div>
+            <Label>Links (Google Drive, Youtube, etc)</Label>
+            <div className="flex gap-2 mt-1">
+              <div className="flex-1 space-y-2">
+                <Input value={newLinkName} onChange={(e) => setNewLinkName(e.target.value)} placeholder="Nome do link (opcional)" className="h-8 text-xs" />
+                <Input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="https://..." className="h-8 text-xs" />
+              </div>
+              <Button type="button" size="icon" variant="outline" className="h-auto" onClick={addLink}>
+                <Plus className="w-4 h-4" />
+              </Button>
+            </div>
+            {links.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {links.map((l, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-100 text-[10px] px-2 py-1 rounded-lg max-w-[200px]">
+                    <LinkIcon className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{l.name}</span>
+                    <button onClick={() => removeLink(i)} className="hover:text-blue-900"><X className="w-3 h-3" /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => { reset(); onClose(); }}>Cancelar</Button>
-          <Button onClick={handleCreate}>Criar OS</Button>
+          <Button variant="outline" onClick={() => { reset(); onClose(); }} disabled={isSubmitting}>Cancelar</Button>
+          <Button onClick={handleCreate} disabled={isSubmitting}>
+            {isSubmitting ? "Criando..." : "Criar OS"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

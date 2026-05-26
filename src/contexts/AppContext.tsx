@@ -1061,7 +1061,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       system_id: t.systemId || null,
       affects_system_balance: t.affectsSystemBalance ?? false,
     });
-    if (error) { toast.error("Erro ao registrar movimentação"); return; }
+    if (error) { console.error("Erro ao registrar no Supabase:", error); toast.error(`Erro ao registrar movimentação: ${error.message}`); return; }
     await loadTransactions();
   }, [user, useLocalFallback]);
 
@@ -1111,7 +1111,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       project_id: r.projectId || null,
       category_id: r.categoryId || null,
     });
-    if (error) { toast.error("Erro ao registrar"); return; }
+    if (error) { 
+      console.error("Firebase/Supabase error:", error);
+      toast.error("Erro ao registrar: " + error.message); 
+      return; 
+    }
     toast.success(r.type === "income" ? "Receita registrada!" : "Despesa registrada!");
     await loadReceivables();
   }, [useLocalFallback]);
