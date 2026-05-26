@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Pencil, Activity, Coins, LineChart, Cpu } from "lucide-react";
+import { Pencil, Activity, Coins, LineChart, Cpu, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -168,6 +168,19 @@ export default function FinancialSystems() {
     };
   };
 
+  const handleDeleteSystem = async (id: string, name: string) => {
+    if (!confirm(`Deseja realmente excluir o sistema "${name}"?`)) return;
+    try {
+      const { error } = await supabase.from("company_systems").delete().eq("id", id);
+      if (error) throw error;
+      toast.success("Sistema excluído!");
+      loadData();
+    } catch (err) {
+      console.error("Erro ao excluir sistema:", err);
+      toast.error("Falha ao excluir sistema.");
+    }
+  };
+
   const handleUpdateInitialBalance = async () => {
     if (!editingId) return;
     const value = parseFloat(editValue) || 0;
@@ -214,17 +227,27 @@ export default function FinancialSystems() {
                   <h3 className="font-bold text-base text-foreground">{sys.name}</h3>
                   <span className="text-[10px] text-muted-foreground font-mono">ID: {sys.id.substring(0, 8)}...</span>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-8 w-8 text-muted-foreground hover:text-primary rounded-full" 
-                  onClick={() => { 
-                    setEditingId(sys.id); 
-                    setEditValue(String(sys.initial_balance)); 
-                  }}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </Button>
+                <div className="flex gap-1">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 text-muted-foreground hover:text-primary rounded-full" 
+                    onClick={() => { 
+                      setEditingId(sys.id); 
+                      setEditValue(String(sys.initial_balance)); 
+                    }}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-8 w-8 text-muted-foreground hover:text-red-500 rounded-full" 
+                    onClick={() => handleDeleteSystem(sys.id, sys.name)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-2.5 text-sm">

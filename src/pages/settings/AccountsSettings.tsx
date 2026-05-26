@@ -202,16 +202,26 @@ export default function AccountsSettings() {
       return;
     }
 
-    const { data: profiles } = await supabase.from("profiles").select("id, name, email, phone, blocked");
-    const { data: roles } = await supabase.from("user_roles").select("user_id, role");
-    const merged: UserRow[] = (profiles || [])
-      .map((p: any) => ({
-        ...p,
-        role: roles?.find((r: any) => r.user_id === p.id)?.role || "operational",
-      }))
-      .filter((u: UserRow) => u.email !== "styronoficial@gmail.com" && u.email !== "styron@gmail.com");
-    setUsers(merged);
-    setLoading(false);
+    try {
+      const { data: profiles, error: pErr } = await supabase.from("profiles").select("id, name, email, phone, blocked");
+      if (pErr) throw pErr;
+      
+      const { data: roles, error: rErr } = await supabase.from("user_roles").select("user_id, role");
+      if (rErr) throw rErr;
+      
+      const merged: UserRow[] = (profiles || [])
+        .map((p: any) => ({
+          ...p,
+          role: roles?.find((r: any) => r.user_id === p.id)?.role || "operational",
+        }))
+        .filter((u: UserRow) => u.email !== "styronoficial@gmail.com" && u.email !== "styron@gmail.com");
+      setUsers(merged);
+    } catch (err: any) {
+      console.error("Erro ao carregar do Supabase:", err);
+      toast.error("Erro ao carregar usuários do Supabase. Verifique sua conexão.");
+    } finally {
+      setLoading(false);
+    }
   };
   
   useEffect(() => { load(); }, [ctxProfiles, useLocalFallback]);
