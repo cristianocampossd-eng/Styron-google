@@ -78,11 +78,12 @@ const App = () => (
                             <Route path="recurring" element={<FinancialRecurring />} />
                             <Route path="transactions" element={<FinancialTransactions />} />
                           </Route>
-                          <Route path="/settings" element={<ProtectedRoute module="settings"><Settings /></ProtectedRoute>}>
-                            <Route index element={<CompanySettings />} />
-                            <Route path="company" element={<CompanySettings />} />
+                          <Route path="/settings" element={<Settings />}>
+                            <Route index element={<ProtectedRoute module="settings"><CompanySettings /></ProtectedRoute>} />
+                            <Route path="company" element={<ProtectedRoute module="settings"><CompanySettings /></ProtectedRoute>} />
                             <Route path="password" element={<PasswordSettings />} />
-                            <Route path="accounts" element={<AccountsSettings />} />
+                            <Route path="accounts" element={<ProtectedRoute module="settings"><AccountsSettings /></ProtectedRoute>} />
+                            <Route path="passwords" element={<ProtectedRoute module="passwords"><Passwords /></ProtectedRoute>} />
                           </Route>
                           <Route path="/profile" element={<Profile />} />
                           <Route path="/passwords" element={<ProtectedRoute module="passwords"><Passwords /></ProtectedRoute>} />

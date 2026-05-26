@@ -192,7 +192,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       const initialOS = [
         {
           id: "os1",
-          number: "OS-0001",
+          number: "OS-001",
           projectId: "p1",
           title: "Revisão Orçamento Inicial",
           description: "Necessário revisar os itens de orçamento para aquisição de matérias primas.",
@@ -391,7 +391,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
     }) => {
       if (useLocalFallback) {
         const newId = `os-${Date.now()}`;
-        const newNo = `OS-${String(orders.length + 1).padStart(4, "0")}`;
+        const newNo = `OS-${String(orders.length + 1).padStart(3, "0")}`;
         
         const fileAtts = (data.attachments || []).map((file, idx) => ({
           id: `at-${Date.now()}-${idx}`,

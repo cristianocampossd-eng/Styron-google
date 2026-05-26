@@ -31,9 +31,9 @@ interface CompanySale {
 interface FinancialTransaction {
   id: string;
   project_id?: string | null;
-  type: "income" | "expense";
+  type: string;
   value: number;
-  affects_system_balance?: boolean | null;
+  system_id?: string | null;
 }
 
 const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -52,22 +52,54 @@ export default function FinancialSystems() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sysRes, prodRes, salesRes, txRes] = await Promise.all([
-        supabase.from("company_systems" as any).select("*").order("name", { ascending: true }),
-        supabase.from("company_products" as any).select("id, name, system_id"),
-        supabase.from("company_sales" as any).select("id, product_id, total_price, stage, system_id"),
-        supabase.from("financial_transactions" as any).select("id, type, value, project_id")
-      ]);
-
+      // 1. Systems
+      const sysRes = await supabase.from("company_systems" as any).select("*").order("name", { ascending: true });
       if (sysRes.error) { console.error("Error loading systems:", sysRes.error); throw sysRes.error; }
+
+      // 2. Products - Tolerant of missing system_id
+      let prodRes = await supabase.from("company_products" as any).select("id, name, system_id");
+      if (prodRes.error && (prodRes.error.code === '42703' || prodRes.error.message?.includes('column') || prodRes.error.message?.includes('does not exist'))) {
+        console.warn("Retrying company_products select without system_id column");
+        prodRes = await supabase.from("company_products" as any).select("id, name");
+      }
       if (prodRes.error) { console.error("Error loading products:", prodRes.error); throw prodRes.error; }
+
+      // 3. Sales - Tolerant of missing system_id
+      let salesRes = await supabase.from("company_sales" as any).select("id, product_id, total_price, stage, system_id");
+      if (salesRes.error && (salesRes.error.code === '42703' || salesRes.error.message?.includes('column') || salesRes.error.message?.includes('does not exist'))) {
+        console.warn("Retrying company_sales select without system_id column");
+        salesRes = await supabase.from("company_sales" as any).select("id, product_id, total_price, stage");
+      }
       if (salesRes.error) { console.error("Error loading sales:", salesRes.error); throw salesRes.error; }
+
+      // 4. Transactions - Tolerant of missing system_id
+      let txRes = await supabase.from("financial_transactions" as any).select("id, type, value, project_id, system_id, description");
+      if (txRes.error && (txRes.error.code === '42703' || txRes.error.message?.includes('column') || txRes.error.message?.includes('does not exist'))) {
+        console.warn("Retrying financial_transactions select without system_id column");
+        txRes = await supabase.from("financial_transactions" as any).select("id, type, value, project_id, description");
+      }
       if (txRes.error) { console.error("Error loading transactions (detailed):", JSON.stringify(txRes.error)); throw txRes.error; }
+
+      const mappedTx = (txRes.data || []).map((t: any) => {
+        let systemId = t.system_id || null;
+        const desc = t.description || "";
+        const match = desc.match(/\[sys:([^:\s\]]+)(?::([yn]))?\]/);
+        if (match && !systemId) {
+          systemId = match[1];
+        }
+        return {
+          id: t.id,
+          type: t.type,
+          value: Number(t.value),
+          project_id: t.project_id,
+          system_id: systemId,
+        };
+      });
 
       setSystems(sysRes.data || []);
       setProducts(prodRes.data || []);
       setSales(salesRes.data || []);
-      setTransactions(txRes.data || []);
+      setTransactions(mappedTx);
     } catch (err) {
       console.error("Erro ao carregar dados financeiros dos sistemas (detalhado):", err);
       toast.error(`Erro ao obter informações financeiras: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
@@ -97,13 +129,10 @@ export default function FinancialSystems() {
       .filter(s => s.stage === "closed_won" || s.stage === "Concluido" || s.stage === "Faturado")
       .reduce((acc, current) => acc + (current.total_price || 0), 0);
 
-    // 3. Transactions linked to this system (via project_id if implemented in future, for now transactions appear separately)
-    // const systemTx = transactions.filter(t => t.system_id === systemId);
-    
-    // For now, transactions are not linked to systems directly.
-    const systemTx: FinancialTransaction[] = []; 
-    const txIncome = 0;
-    const txExpense = 0;
+    // 3. Transactions linked to this system
+    const systemTx = transactions.filter(t => t.system_id === systemId);
+    const txIncome = systemTx.filter(t => t.type === "income").reduce((acc, t) => acc + (t.value || 0), 0);
+    const txExpense = systemTx.filter(t => t.type === "expense" || t.type === "withdrawal").reduce((acc, t) => acc + (t.value || 0), 0);
 
     // 4. Computation
     const totalRevenue = salesRevenue + txIncome;

@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useApp } from "@/contexts/AppContext";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
   ShoppingBag,
@@ -59,9 +61,25 @@ const STAGES_DETAILS = {
 
 export default function Sales() {
   const { user, profile } = useAuth();
+  const { accounts, categories, projects, addTransaction, updateAccountBalance } = useApp();
   const [sales, setSales] = useState<CompanySale[]>([]);
   const [products, setProducts] = useState<CompanyProduct[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Financial Dialog State for Won Sales
+  const [isFinTxDialogOpen, setIsFinTxDialogOpen] = useState(false);
+  const [pendingSale, setPendingSale] = useState<any | null>(null);
+
+  // Financial Form States
+  const [finType, setFinType] = useState<string>("income");
+  const [finAccount, setFinAccount] = useState("");
+  const [finDestAccount, setFinDestAccount] = useState("");
+  const [finCategory, setFinCategory] = useState("");
+  const [finProject, setFinProject] = useState("general");
+  const [finValue, setFinValue] = useState("");
+  const [finDesc, setFinDesc] = useState("");
+  const [finSystem, setFinSystem] = useState("none");
+  const [finAffectsSystem, setFinAffectsSystem] = useState(true);
 
   // Filters State
   const [search, setSearch] = useState("");
@@ -124,6 +142,119 @@ export default function Sales() {
     }
   };
 
+  const openFinancialDialog = (saleData: any) => {
+    setPendingSale(saleData);
+    setFinType("income");
+    setFinValue(String(saleData.total_price || 0));
+    setFinDesc(`Venda: ${saleData.client_name} - ${saleData.product_name}`);
+    
+    const sysId = saleData.system_id || "none";
+    setFinSystem(sysId);
+    setFinAffectsSystem(sysId !== "none");
+
+    if (accounts && accounts.length > 0) {
+      setFinAccount(accounts[0].id);
+    } else {
+      setFinAccount("");
+    }
+
+    if (categories && categories.length > 0) {
+      const salesCat = categories.find(c => c.name.toLowerCase().includes("venda") || c.name.toLowerCase().includes("receit"));
+      setFinCategory(salesCat ? salesCat.id : categories[0].id);
+    } else {
+      setFinCategory("");
+    }
+
+    setFinProject("general");
+    setIsFinTxDialogOpen(true);
+  };
+
+  const handleSaveFinancialTxAndSale = async () => {
+    if (!pendingSale) return;
+    const value = parseFloat(finValue);
+    if (!value || isNaN(value) || !finAccount) {
+      toast.error("Por favor, preencha o valor e selecione a conta de movimentação.");
+      return;
+    }
+
+    try {
+      const basePayload = {
+        client_name: pendingSale.client_name,
+        company_name: pendingSale.company_name,
+        product_id: pendingSale.product_id,
+        product_name: pendingSale.product_name,
+        quantity: Number(pendingSale.quantity),
+        unit_price: Number(pendingSale.unit_price),
+        total_price: Number(pendingSale.total_price),
+        stage: "closed_won" as const,
+        seller_id: pendingSale.seller_id,
+        seller_name: pendingSale.seller_name,
+        notes: pendingSale.notes,
+      };
+
+      if (pendingSale.id) {
+        // Update existing sale
+        let { error } = await supabase.from("company_sales").update({
+          ...basePayload,
+          system_id: pendingSale.system_id,
+        }).eq("id", pendingSale.id);
+        
+        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+          console.warn("Retrying update without system_id column");
+          const retryRes = await supabase.from("company_sales").update(basePayload).eq("id", pendingSale.id);
+          error = retryRes.error;
+        }
+        if (error) throw error;
+      } else {
+        // Insert new sale
+        let { error } = await supabase.from("company_sales").insert({
+          ...basePayload,
+          system_id: pendingSale.system_id,
+        });
+        
+        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+          console.warn("Retrying insert without system_id column");
+          const retryRes = await supabase.from("company_sales").insert(basePayload);
+          error = retryRes.error;
+        }
+        if (error) throw error;
+      }
+
+      // Track financial txn
+      const txn = {
+        type: finType as any,
+        projectId: finProject === "general" ? null : finProject,
+        accountId: finAccount,
+        categoryId: finCategory || null,
+        value,
+        date: new Date(),
+        description: finDesc || `Venda: ${pendingSale.client_name}`,
+        systemId: finSystem === "none" ? null : finSystem,
+        affectsSystemBalance: finAffectsSystem,
+      };
+
+      await addTransaction(txn);
+      
+      // Update local account balance
+      if (finType === "income") updateAccountBalance(finAccount, value);
+      if (finType === "expense") updateAccountBalance(finAccount, -value);
+      if (finType === "withdrawal") updateAccountBalance(finAccount, -value);
+      if (finType === "transfer") {
+        updateAccountBalance(finAccount, -value);
+        if (finDestAccount) updateAccountBalance(finDestAccount, value);
+      }
+
+      toast.success("Venda finalizada (ganha) e movimentação financeira registrada com sucesso!");
+      setIsFinTxDialogOpen(false);
+      setPendingSale(null);
+      clearForm();
+      loadSalesAndProducts();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Erro ao finalizar a venda: ${err.message || "Erro desconhecido"}`);
+    }
+  };
+
   const handleSaveSale = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clientName || !productId || quantity <= 0) {
@@ -135,7 +266,7 @@ export default function Sales() {
     const selectedProductName = selectedProd ? selectedProd.name : "Serviço customizado";
     const selectedSystemId = selectedProd ? (selectedProd as any).system_id : null;
 
-    const payload = {
+    const basePayload = {
       client_name: clientName,
       company_name: companyName,
       product_id: productId,
@@ -147,18 +278,58 @@ export default function Sales() {
       seller_id: user?.id || "fallback-vendedor",
       seller_name: profile?.name || user?.email?.split("@")[0] || "Consultor Styron",
       notes,
-      system_id: selectedSystemId,
     };
+
+    if (stage === "closed_won") {
+      const tempSale = {
+        id: editingId || undefined,
+        client_name: clientName,
+        company_name: companyName,
+        product_id: productId,
+        product_name: selectedProductName,
+        quantity: Number(quantity),
+        unit_price: Number(unitPrice),
+        total_price: Number(totalPrice),
+        stage: "closed_won" as const,
+        seller_id: user?.id || "fallback-vendedor",
+        seller_name: profile?.name || user?.email?.split("@")[0] || "Consultor Styron",
+        notes,
+        system_id: selectedSystemId,
+      };
+      setIsDialogOpen(false);
+      openFinancialDialog(tempSale);
+      return;
+    }
 
     try {
       if (editingId) {
         // Update
-        const { error } = await supabase.from("company_sales").update(payload).eq("id", editingId);
+        let { error } = await supabase.from("company_sales").update({
+          ...basePayload,
+          system_id: selectedSystemId,
+        }).eq("id", editingId);
+        
+        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+          console.warn("Retrying update without system_id column");
+          const retryRes = await supabase.from("company_sales").update(basePayload).eq("id", editingId);
+          error = retryRes.error;
+        }
+        
         if (error) throw error;
         toast.success("Oportunidade de venda atualizada.");
       } else {
         // Insert new sale
-        const { error } = await supabase.from("company_sales").insert(payload);
+        let { error } = await supabase.from("company_sales").insert({
+          ...basePayload,
+          system_id: selectedSystemId,
+        });
+        
+        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+          console.warn("Retrying insert without system_id column");
+          const retryRes = await supabase.from("company_sales").insert(basePayload);
+          error = retryRes.error;
+        }
+        
         if (error) throw error;
         toast.success("Oportunidade de venda registrada no funil.");
       }
@@ -218,6 +389,13 @@ export default function Sales() {
     else if (sale.stage === "proposal") nextStage = "closed_won"; // Default advance proposal wins
 
     if (nextStage) {
+      if (nextStage === "closed_won") {
+        openFinancialDialog({
+          ...sale,
+          stage: "closed_won"
+        });
+        return;
+      }
       try {
         const { error } = await supabase
           .from("company_sales")
@@ -796,6 +974,170 @@ export default function Sales() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Detalhes da Movimentação Financeira Modal */}
+      <Dialog open={isFinTxDialogOpen} onOpenChange={setIsFinTxDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Finalizar Venda: Detalhes Financeiros</DialogTitle>
+            <DialogDescription>
+              Para registrar o fechamento desta venda ganha, defina como ocorrerá a movimentação financeira correspondente no fluxo de caixa.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Tipo da Movimentação</Label>
+              <Select value={finType} onValueChange={setFinType}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="income">Receita (Entrada)</SelectItem>
+                  <SelectItem value="expense">Despesa (Saída)</SelectItem>
+                  <SelectItem value="transfer">Transferência</SelectItem>
+                  <SelectItem value="withdrawal">Saque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Projeto Vinculado</Label>
+              <Select value={finProject} onValueChange={setFinProject}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Geral" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="general">Geral (Nenhum projeto específico)</SelectItem>
+                  {projects.filter((p) => p.status !== "archived").map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Conta Creditada / Movimentada</Label>
+              <Select value={finAccount} onValueChange={setFinAccount}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Selecione uma conta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name} ({formatPrice(a.balance || 0)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {finType === "transfer" && (
+              <div>
+                <Label>Conta Destino</Label>
+                <Select value={finDestAccount} onValueChange={setFinDestAccount}>
+                  <SelectTrigger className="mt-1.5">
+                    <SelectValue placeholder="Selecione a conta destino" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.filter((a) => a.id !== finAccount).map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name} ({formatPrice(a.balance || 0)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div>
+              <Label>Categoria Financeira</Label>
+              <Select value={finCategory} onValueChange={setFinCategory}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Selecione uma categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="fin-value">Valor Recebido</Label>
+              <Input
+                id="fin-value"
+                type="number"
+                step="0.01"
+                placeholder="R$ 0,00"
+                className="mt-1.5"
+                value={finValue}
+                onChange={(e) => setFinValue(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="fin-desc">Descrição da Transação</Label>
+              <Input
+                id="fin-desc"
+                placeholder="Descrição"
+                className="mt-1.5"
+                value={finDesc}
+                onChange={(e) => setFinDesc(e.target.value)}
+              />
+            </div>
+
+            <div className="border bg-muted/10 p-3 rounded-lg space-y-3">
+              <div>
+                <Label htmlFor="fin-system-select">Vincular a um Sistema</Label>
+                <Select value={finSystem} onValueChange={(v) => {
+                  setFinSystem(v);
+                  setFinAffectsSystem(v !== "none");
+                }}>
+                  <SelectTrigger id="fin-system-select" className="mt-1.5">
+                    <SelectValue placeholder="Escolha um sistema" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum / Não aplicável</SelectItem>
+                    {systems.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {finSystem !== "none" && (
+                <div className="flex items-center space-x-2 pt-1">
+                  <Checkbox
+                    id="fin-affects-system"
+                    checked={finAffectsSystem}
+                    onCheckedChange={(checked) => setFinAffectsSystem(!!checked)}
+                  />
+                  <Label htmlFor="fin-affects-system" className="text-xs cursor-pointer text-muted-foreground font-semibold">
+                    Esta movimentação incidirá no saldo final do sistema
+                  </Label>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsFinTxDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveFinancialTxAndSale} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              Confirmar Recebimento e Ganhar Venda
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

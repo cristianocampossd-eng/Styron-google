@@ -27,7 +27,7 @@ export default function FinancialTransactions() {
   const [open, setOpen] = useState(false);
   const [searchParams] = useSearchParams();
   const typeFilter = searchParams.get("type");
-  const { transactions, accounts, categories, projects, addTransaction, updateAccountBalance } = useApp();
+  const { transactions, accounts, categories, projects, addTransaction, updateAccountBalance, getProjectCode } = useApp();
   const [systems, setSystems] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
@@ -183,7 +183,7 @@ export default function FinancialTransactions() {
                       </span>
                     </td>
                     <td className="p-4 text-muted-foreground hidden md:table-cell">
-                      {project?.name || "Geral"}
+                      {project ? `${getProjectCode(project.id)} - ${project.name}` : "Geral"}
                       {t.systemId && (
                         <div className="text-[10px] text-primary font-semibold mt-0.5">
                           💻 {systems.find((s) => s.id === t.systemId)?.name || "Sistema"}
@@ -229,7 +229,7 @@ export default function FinancialTransactions() {
                 <SelectContent>
                   <SelectItem value="general">Geral</SelectItem>
                   {projects.filter((p) => p.status !== "archived").map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    <SelectItem key={p.id} value={p.id}>{getProjectCode(p.id)} - {p.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

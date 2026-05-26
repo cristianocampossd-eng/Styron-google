@@ -1,19 +1,36 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { Building2, KeyRound, Users } from "lucide-react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Building2, KeyRound, Users, Key } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-const tabs = [
-  { path: "/settings/company", label: "Empresa", icon: Building2 },
-  { path: "/settings/password", label: "Senha", icon: KeyRound },
-  { path: "/settings/accounts", label: "Contas", icon: Users },
-];
+import { useAuth } from "@/contexts/AuthContext";
+import { useEffect } from "react";
 
 export default function Settings() {
+  const { canAccess } = useAuth();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+
+  const tabs = [
+    { path: "/settings/company", label: "Empresa", icon: Building2, module: "settings" as const },
+    { path: "/settings/accounts", label: "Usuários", icon: Users, module: "settings" as const },
+    { path: "/settings/password", label: "Minha Senha", icon: KeyRound, module: "profile" as const },
+    { path: "/settings/passwords", label: "Senhas da Empresa", icon: Key, module: "passwords" as const },
+  ];
+
+  const allowedTabs = tabs.filter((t) => canAccess(t.module));
+
+  useEffect(() => {
+    if (pathname === "/settings" || pathname === "/settings/") {
+      if (allowedTabs.length > 0) {
+        navigate(allowedTabs[0].path, { replace: true });
+      }
+    }
+  }, [pathname, allowedTabs, navigate]);
+
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6 animate-fade-in">
       <h1 className="text-2xl font-semibold tracking-tight">Configurações</h1>
-      <div className="flex gap-1 bg-secondary rounded-lg p-1 w-fit">
-        {tabs.map((t) => (
+      <div className="flex gap-1 bg-secondary rounded-lg p-1 w-fit flex-wrap">
+        {allowedTabs.map((t) => (
           <NavLink
             key={t.path}
             to={t.path}

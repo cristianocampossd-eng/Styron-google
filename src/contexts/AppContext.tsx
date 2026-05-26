@@ -423,18 +423,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .order("transaction_date", { ascending: false });
     if (data) {
       setTransactions(
-        data.map((t: any) => ({
-          id: t.id,
-          type: t.type as any,
-          projectId: t.project_id,
-          accountId: t.account_id || "",
-          categoryId: t.category_id || "",
-          value: Number(t.value),
-          date: new Date(t.transaction_date),
-          description: t.description || "",
-          systemId: t.system_id,
-          affectsSystemBalance: t.affects_system_balance,
-        }))
+        data.map((t: any) => {
+          let systemId = t.system_id || null;
+          let affectsSystemBalance = t.affects_system_balance ?? false;
+          const desc = t.description || "";
+          
+          // Parse format: [sys:SYSTEM_ID:y/n]
+          const match = desc.match(/\[sys:([^:\s\]]+)(?::([yn]))?\]/);
+          if (match) {
+            if (!systemId) systemId = match[1];
+            if (t.affects_system_balance === undefined || t.affects_system_balance === null) {
+              affectsSystemBalance = match[2] === 'y';
+            }
+          }
+          
+          // Strip the metadata tag from the displayed description
+          const cleanDesc = desc.replace(/\s*\[sys:[^\]]+\]/, "");
+
+          return {
+            id: t.id,
+            type: t.type as any,
+            projectId: t.project_id,
+            accountId: t.account_id || "",
+            categoryId: t.category_id || "",
+            value: Number(t.value),
+            date: new Date(t.transaction_date),
+            description: cleanDesc,
+            systemId,
+            affectsSystemBalance,
+          };
+        })
       );
     }
   }
@@ -1049,7 +1067,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const { error } = await supabase.from("financial_transactions").insert({
+    const finalDescription = t.systemId 
+      ? `${t.description || ""} [sys:${t.systemId}:${t.affectsSystemBalance ? 'y' : 'n'}]`.trim()
+      : t.description;
+
+    const txPayload: any = {
+      type: t.type,
+      project_id: t.projectId || null,
+      account_id: t.accountId || null,
+      category_id: t.category_id || null,
+      value: t.value,
+      description: finalDescription,
+      transaction_date: t.date.toISOString(),
+      created_by: user?.id || null,
+    };
+    if (t.systemId) txPayload.system_id = t.systemId;
+    txPayload.affects_system_balance = t.affectsSystemBalance ?? false;
+
+    let { error } = await supabase.from("financial_transactions").insert(txPayload);
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      const { system_id, affects_system_balance, ...cleanPayload } = txPayload;
+      const retryRes = await supabase.from("financial_transactions").insert(cleanPayload);
+      error = retryRes.error;
+    }
+    const dummyObj = ({
       type: t.type,
       project_id: t.projectId || null,
       account_id: t.accountId || null,
@@ -1061,6 +1102,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       system_id: t.systemId || null,
       affects_system_balance: t.affectsSystemBalance ?? false,
     });
+    void dummyObj;
     if (error) { console.error("Erro ao registrar no Supabase:", error); toast.error(`Erro ao registrar movimentação: ${error.message}`); return; }
     await loadTransactions();
   }, [user, useLocalFallback]);

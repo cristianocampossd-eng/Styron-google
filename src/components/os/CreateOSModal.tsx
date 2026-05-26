@@ -18,7 +18,7 @@ interface Props {
 
 export function CreateOSModal({ open, onClose }: Props) {
   const { createOrder } = useServiceOrders();
-  const { projects, profiles } = useApp();
+  const { projects, profiles, getProjectCode } = useApp();
   const { user } = useAuth();
   const [projectId, setProjectId] = useState("");
   const [responsible, setResponsible] = useState("");
@@ -135,7 +135,7 @@ export function CreateOSModal({ open, onClose }: Props) {
               <Select value={projectId} onValueChange={setProjectId}>
                 <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
                 <SelectContent>
-                  {projects.filter((p) => p.status !== "archived").map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  {projects.filter((p) => p.status !== "archived").map((p) => <SelectItem key={p.id} value={p.id}>{getProjectCode(p.id)} - {p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

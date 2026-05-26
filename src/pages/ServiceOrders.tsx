@@ -24,7 +24,7 @@ export default function ServiceOrders() {
   const setTab = (newTab: string) => setSearchParams({ tab: newTab });
 
   const { orders, updateStatus, archiveOrder } = useServiceOrders();
-  const { projects, profiles } = useApp();
+  const { projects, profiles, getProjectCode } = useApp();
   const { user } = useAuth();
   const currentUserId = user?.id || "";
 
@@ -96,7 +96,7 @@ export default function ServiceOrders() {
             <SelectTrigger className="w-[180px]"><SelectValue placeholder="Projeto" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os projetos</SelectItem>
-              {projects.filter((p) => p.status !== "archived").map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+              {projects.filter((p) => p.status !== "archived").map((p) => <SelectItem key={p.id} value={p.id}>{getProjectCode(p.id)} - {p.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={filterPriority} onValueChange={setFilterPriority}>
@@ -182,7 +182,7 @@ export default function ServiceOrders() {
                     return (
                       <TableRow key={os.id} className="cursor-pointer hover:bg-accent/30 transition-colors" onClick={() => openDetail(os)}>
                         <TableCell className="font-mono text-xs font-medium">{os.number}</TableCell>
-                        <TableCell className="text-sm">{project?.name}</TableCell>
+                        <TableCell className="text-sm">{project ? `${getProjectCode(project.id)} - ${project.name}` : ""}</TableCell>
                         <TableCell className="text-sm font-medium max-w-[200px] truncate">{os.title}</TableCell>
                         <TableCell><OSPriorityBadge priority={os.priority} /></TableCell>
                         <TableCell><OSStatusBadge status={os.status} /></TableCell>

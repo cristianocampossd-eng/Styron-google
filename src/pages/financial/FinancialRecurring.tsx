@@ -15,7 +15,7 @@ const statusColors: Record<string, string> = { pending: "bg-warning/10 text-warn
 const recLabels: Record<string, string> = { once: "Única", monthly: "Mensal", weekly: "Semanal", yearly: "Anual" };
 
 export default function FinancialRecurring() {
-  const { receivables, addReceivable, payReceivable, projects, accounts, categories } = useApp();
+  const { receivables, addReceivable, payReceivable, projects, accounts, categories, getProjectCode } = useApp();
   const [createOpen, setCreateOpen] = useState(false);
   const [payOpen, setPayOpen] = useState<string | null>(null);
   const [createType, setCreateType] = useState<"income" | "expense">("expense");
@@ -130,7 +130,7 @@ export default function FinancialRecurring() {
               <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="none">Geral</SelectItem>
               {projects.filter((p) => p.status !== "archived").map((p) => (
-                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                <SelectItem key={p.id} value={p.id}>{getProjectCode(p.id)} - {p.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -212,7 +212,7 @@ export default function FinancialRecurring() {
                 <SelectContent>
                   <SelectItem value="none">Nenhum</SelectItem>
                   {projects.filter((p) => p.status !== "archived").map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    <SelectItem key={p.id} value={p.id}>{getProjectCode(p.id)} - {p.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
