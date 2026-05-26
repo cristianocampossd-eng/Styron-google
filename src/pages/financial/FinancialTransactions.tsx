@@ -186,15 +186,15 @@ export default function FinancialTransactions() {
     }
   };
 
-  const handleEditDelete = async () => {
-    if (!selectedTx) return;
+  const handleDeleteTransaction = async (tx: any, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!window.confirm("Deseja realmente excluir esta movimentação?")) return;
 
     try {
-      // Revert old transaction impact on balance
-      const oldType = selectedTx.type;
-      const oldValue = selectedTx.value;
-      const oldAccountId = selectedTx.accountId;
+      // Revert transaction impact on balance
+      const oldType = tx.type;
+      const oldValue = tx.value;
+      const oldAccountId = tx.accountId;
 
       let revertDelta = 0;
       if (oldType === "income") {
@@ -207,13 +207,20 @@ export default function FinancialTransactions() {
         await updateAccountBalance(oldAccountId, revertDelta);
       }
 
-      await deleteTransaction(selectedTx.id);
-      setDetailsOpen(false);
-      setSelectedTx(null);
+      await deleteTransaction(tx.id);
+      toast.success("Movimentação excluída!");
     } catch (err) {
       console.error("Erro ao excluir movimentação:", err);
       toast.error("Erro ao excluir movimentação.");
     }
+  };
+
+  const handleEditDelete = async () => {
+    if (!selectedTx) return;
+    const fakeEvent = { stopPropagation: () => {} } as any;
+    await handleDeleteTransaction(selectedTx, fakeEvent);
+    setDetailsOpen(false);
+    setSelectedTx(null);
   };
 
   return (
@@ -290,6 +297,7 @@ export default function FinancialTransactions() {
                 <th className="text-left p-4 font-medium text-muted-foreground">Descrição</th>
                 <th className="text-right p-4 font-medium text-muted-foreground">Valor</th>
                 <th className="text-left p-4 font-medium text-muted-foreground hidden sm:table-cell">Data</th>
+                <th className="text-center p-4 font-medium text-muted-foreground w-20">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -324,6 +332,16 @@ export default function FinancialTransactions() {
                       {t.type === "income" ? "+" : "-"}{fmt(t.value)}
                     </td>
                     <td className="p-4 text-muted-foreground hidden sm:table-cell">{format(t.date, "dd/MM/yyyy")}</td>
+                    <td className="p-4 text-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-8 h-8 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-50"
+                        onClick={(e) => handleDeleteTransaction(t, e)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </td>
                   </tr>
                 );
               })}

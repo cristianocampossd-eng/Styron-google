@@ -86,6 +86,8 @@ interface AppContextType {
   refreshTransactions: () => Promise<void>;
   refreshAccounts: () => Promise<void>;
   addCategory: (name: string, type: "income" | "expense") => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
+  deleteReceivable: (id: string) => Promise<void>;
   useLocalFallback: boolean;
 }
 
@@ -122,26 +124,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const loadFromLocalStorage = useCallback(() => {
     // 1. Categories
-    let localCats = localStorage.getItem("styron_categories");
+    let localCats = localStorage.getItem("styron_prod_categories");
     if (!localCats) {
       localCats = JSON.stringify(mockCategories);
-      localStorage.setItem("styron_categories", localCats);
+      localStorage.setItem("styron_prod_categories", localCats);
     }
     setCategories(JSON.parse(localCats));
 
     // 2. Accounts
-    let localAccs = localStorage.getItem("styron_accounts");
+    let localAccs = localStorage.getItem("styron_prod_accounts");
     if (!localAccs) {
       localAccs = JSON.stringify(mockAccounts);
-      localStorage.setItem("styron_accounts", localAccs);
+      localStorage.setItem("styron_prod_accounts", localAccs);
     }
     setAccounts(JSON.parse(localAccs));
 
     // 3. Projects
-    let localProjs = localStorage.getItem("styron_projects");
+    let localProjs = localStorage.getItem("styron_prod_projects");
     if (!localProjs) {
       localProjs = JSON.stringify(mockProjects);
-      localStorage.setItem("styron_projects", localProjs);
+      localStorage.setItem("styron_prod_projects", localProjs);
     }
     const parsedProjs = JSON.parse(localProjs).map((p: any) => ({
       ...p,
@@ -160,10 +162,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTemplates(parsedProjs.filter((p: any) => p.is_template));
 
     // 4. Transactions
-    let localTx = localStorage.getItem("styron_transactions");
+    let localTx = localStorage.getItem("styron_prod_transactions");
     if (!localTx) {
       localTx = JSON.stringify(mockTransactions);
-      localStorage.setItem("styron_transactions", localTx);
+      localStorage.setItem("styron_prod_transactions", localTx);
     }
     setTransactions(JSON.parse(localTx).map((t: any) => ({
       ...t,
@@ -171,7 +173,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })));
 
     // 5. Receivables
-    let localRec = localStorage.getItem("styron_receivables");
+    let localRec = localStorage.getItem("styron_prod_receivables");
     if (!localRec) {
       const initialReceivables = [
         {
@@ -202,7 +204,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       ];
       localRec = JSON.stringify(initialReceivables);
-      localStorage.setItem("styron_receivables", localRec);
+      localStorage.setItem("styron_prod_receivables", localRec);
     }
     setReceivables(JSON.parse(localRec).map((r: any) => ({
       ...r,
@@ -211,7 +213,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })));
 
     // 6. Profiles
-    let localProfiles = localStorage.getItem("styron_profiles");
+    let localProfiles = localStorage.getItem("styron_prod_profiles");
     if (!localProfiles) {
       const initialProfiles = people.map((p, index) => ({
         id: `usr-${index + 1}`,
@@ -226,12 +228,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
       }
       localProfiles = JSON.stringify(initialProfiles);
-      localStorage.setItem("styron_profiles", localProfiles);
+      localStorage.setItem("styron_prod_profiles", localProfiles);
     }
-    setProfiles(JSON.parse(localProfiles));
+    let parsedProfiles = JSON.parse(localProfiles);
+    setProfiles(parsedProfiles.filter((p: any) => p.email !== "styronoficial@gmail.com" && p.email !== "styron@gmail.com"));
 
     // 7. Notifications
-    let localNotifs = localStorage.getItem("styron_notifications") || "[]";
+    let localNotifs = localStorage.getItem("styron_prod_notifications") || "[]";
     setNotifications(JSON.parse(localNotifs).map((n: any) => ({
       ...n,
       date: new Date(n.date)
@@ -242,43 +245,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (useLocalFallback) {
       const allProjects = [...projects, ...templates];
-      localStorage.setItem("styron_projects", JSON.stringify(allProjects));
+      localStorage.setItem("styron_prod_projects", JSON.stringify(allProjects));
     }
   }, [projects, templates, useLocalFallback]);
 
   useEffect(() => {
     if (useLocalFallback) {
-      localStorage.setItem("styron_transactions", JSON.stringify(transactions));
+      localStorage.setItem("styron_prod_transactions", JSON.stringify(transactions));
     }
   }, [transactions, useLocalFallback]);
 
   useEffect(() => {
     if (useLocalFallback) {
-      localStorage.setItem("styron_accounts", JSON.stringify(accounts));
+      localStorage.setItem("styron_prod_accounts", JSON.stringify(accounts));
     }
   }, [accounts, useLocalFallback]);
 
   useEffect(() => {
     if (useLocalFallback) {
-      localStorage.setItem("styron_categories", JSON.stringify(categories));
+      localStorage.setItem("styron_prod_categories", JSON.stringify(categories));
     }
   }, [categories, useLocalFallback]);
 
   useEffect(() => {
     if (useLocalFallback) {
-      localStorage.setItem("styron_receivables", JSON.stringify(receivables));
+      localStorage.setItem("styron_prod_receivables", JSON.stringify(receivables));
     }
   }, [receivables, useLocalFallback]);
 
   useEffect(() => {
     if (useLocalFallback) {
-      localStorage.setItem("styron_notifications", JSON.stringify(notifications));
+      localStorage.setItem("styron_prod_notifications", JSON.stringify(notifications));
     }
   }, [notifications, useLocalFallback]);
 
   useEffect(() => {
     if (useLocalFallback) {
-      localStorage.setItem("styron_profiles", JSON.stringify(profiles));
+      localStorage.setItem("styron_prod_profiles", JSON.stringify(profiles));
     }
   }, [profiles, useLocalFallback]);
 
@@ -333,7 +336,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   async function loadProfiles() {
     const { data } = await supabase.from("profiles").select("id, name, email");
-    if (data) setProfiles(data);
+    if (data) {
+      setProfiles(data.filter((p: any) => p.email !== "styronoficial@gmail.com" && p.email !== "styron@gmail.com"));
+    }
   }
 
   async function loadProjects() {
@@ -1349,15 +1354,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await loadCategories();
   }, [useLocalFallback]);
 
+  const deleteCategory = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      setCategories((prev) => prev.filter((c) => c.id !== id));
+      toast.success("Categoria excluída!");
+      return;
+    }
+
+    const { error } = await supabase.from("financial_categories").delete().eq("id", id);
+    if (error) {
+      toast.error("Erro ao excluir categoria: " + error.message);
+      return;
+    }
+    toast.success("Categoria excluída com sucesso!");
+    await loadCategories();
+  }, [useLocalFallback]);
+
+  const deleteReceivable = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      setReceivables((prev) => prev.filter((r) => r.id !== id));
+      toast.success("Registro excluído!");
+      return;
+    }
+
+    const { error } = await supabase.from("financial_entries").delete().eq("id", id);
+    if (error) {
+      toast.error("Erro ao excluir registro: " + error.message);
+      return;
+    }
+    toast.success("Registro excluído com sucesso!");
+    await loadReceivables();
+  }, [useLocalFallback]);
+
   return (
     <AppContext.Provider
       value={{
         projects, templates, transactions, accounts, receivables, categories, taskMessages, notifications, loading, profiles, setProfiles,
         addProject, updateProject, updateProjectInvestment, duplicateProject, saveProjectAsTemplate, archiveProject, updateTask, deleteTask, updateStage, deleteStage, addStage, addTask,
         addTransaction, updateTransaction, deleteTransaction, updateAccountBalance,
-        addReceivable, payReceivable,
+        addReceivable, payReceivable, deleteReceivable,
         addTaskMessage, addNotification, markNotificationRead, getProjectCode,
-        refreshProjects, refreshTransactions, refreshAccounts, addCategory,
+        refreshProjects, refreshTransactions, refreshAccounts, addCategory, deleteCategory,
         useLocalFallback,
       }}
     >

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useApp } from "@/contexts/AppContext";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -13,7 +13,7 @@ export default function FinancialCategories() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState<"income" | "expense">("expense");
-  const { categories, addCategory } = useApp();
+  const { categories, addCategory, deleteCategory } = useApp();
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -24,6 +24,12 @@ export default function FinancialCategories() {
     setName("");
     setType("expense");
     setOpen(false);
+  };
+
+  const handleDelete = async (id: string, catName: string) => {
+    if (confirm(`Deseja realmente excluir a categoria "${catName}"?`)) {
+      await deleteCategory(id);
+    }
   };
 
   return (
@@ -38,6 +44,7 @@ export default function FinancialCategories() {
             <tr className="border-b bg-muted/50">
               <th className="text-left p-4 font-medium text-muted-foreground">Nome</th>
               <th className="text-left p-4 font-medium text-muted-foreground">Tipo</th>
+              <th className="text-center p-4 font-medium text-muted-foreground w-20">Ações</th>
             </tr>
           </thead>
           <tbody>
@@ -51,6 +58,16 @@ export default function FinancialCategories() {
                   )}>
                     {cat.type === "income" ? "Receita" : "Despesa"}
                   </span>
+                </td>
+                <td className="p-4 text-center">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="w-8 h-8 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-50"
+                    onClick={() => handleDelete(cat.id, cat.name)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </td>
               </tr>
             ))}

@@ -187,7 +187,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
   const getProfileName = (id: string) => profiles.find((p) => p.id === id)?.name || id;
 
   const loadFromLocalStorage = useCallback(() => {
-    let localOS = localStorage.getItem("styron_service_orders");
+    let localOS = localStorage.getItem("styron_prod_service_orders");
     if (!localOS) {
       const initialOS = [
         {
@@ -210,7 +210,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
         }
       ];
       localOS = JSON.stringify(initialOS);
-      localStorage.setItem("styron_service_orders", localOS);
+      localStorage.setItem("styron_prod_service_orders", localOS);
     }
 
     const parsed = JSON.parse(localOS).map((o: any) => ({
@@ -228,7 +228,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
     }));
     setOrders(parsed);
 
-    let localOSNotifs = localStorage.getItem("styron_os_notifications") || "[]";
+    let localOSNotifs = localStorage.getItem("styron_prod_os_notifications") || "[]";
     setNotifications(JSON.parse(localOSNotifs).map((n: any) => ({
       ...n,
       date: new Date(n.date)
@@ -238,13 +238,13 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
   // Sync to localstorage if fallback active
   useEffect(() => {
     if (useLocalFallback) {
-      localStorage.setItem("styron_service_orders", JSON.stringify(orders));
+      localStorage.setItem("styron_prod_service_orders", JSON.stringify(orders));
     }
   }, [orders, useLocalFallback]);
 
   useEffect(() => {
     if (useLocalFallback) {
-      localStorage.setItem("styron_os_notifications", JSON.stringify(notifications));
+      localStorage.setItem("styron_prod_os_notifications", JSON.stringify(notifications));
     }
   }, [notifications, useLocalFallback]);
 

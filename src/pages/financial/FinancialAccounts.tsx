@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -40,15 +40,40 @@ export default function FinancialAccounts() {
     await refreshAccounts();
   };
 
+  const deleteAccount = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Deseja realmente excluir esta conta?")) return;
+    const { error } = await supabase.from("financial_accounts").delete().eq("id", id);
+    if (error) {
+      toast.error("Erro ao excluir conta: " + error.message);
+      return;
+    }
+    toast.success("Conta excluída!");
+    if (selected === id) {
+      setSelected(null);
+    }
+    await refreshAccounts();
+  };
+
   const account = accounts.find((a) => a.id === selected);
   const accTransactions = selected ? transactions.filter((t) => t.accountId === selected) : [];
 
   if (account) {
     return (
       <div className="space-y-4 animate-fade-in">
-        <Button variant="ghost" onClick={() => setSelected(null)} className="gap-2">
-          <ArrowLeft className="w-4 h-4" /> Voltar
-        </Button>
+        <div className="flex justify-between items-center bg-card p-3 rounded-lg border">
+          <Button variant="ghost" onClick={() => setSelected(null)} className="gap-2">
+            <ArrowLeft className="w-4 h-4" /> Voltar
+          </Button>
+          <Button 
+            variant="destructive" 
+            size="sm" 
+            onClick={(e) => deleteAccount(account.id, e)}
+            className="gap-2"
+          >
+            <Trash2 className="w-4 h-4" /> Excluir Conta
+          </Button>
+        </div>
         <div className="bg-card rounded-xl border p-5">
           <h3 className="text-lg font-semibold">{account.name}</h3>
           <p className="text-2xl font-bold mt-2">{fmt(account.balance)}</p>
@@ -99,10 +124,21 @@ export default function FinancialAccounts() {
           <div
             key={acc.id}
             onClick={() => setSelected(acc.id)}
-            className="bg-card rounded-xl border p-5 hover:shadow-md cursor-pointer transition-all animate-slide-up flex flex-col justify-between space-y-4"
+            className="bg-card rounded-xl border p-5 hover:shadow-md cursor-pointer transition-all animate-slide-up flex flex-col justify-between space-y-4 relative group"
           >
             <div>
-              <p className="text-sm text-muted-foreground font-medium">{acc.name}</p>
+              <div className="flex justify-between items-start">
+                <p className="text-sm text-muted-foreground font-medium">{acc.name}</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="w-7 h-7 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-50 md:opacity-0 group-hover:opacity-100 transition-all"
+                  onClick={(e) => deleteAccount(acc.id, e)}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
               <p className="text-2xl font-bold mt-2 text-foreground">{fmt(acc.balance)}</p>
               <p className="text-[10px] text-muted-foreground/80 mt-1 font-mono">ID: {acc.id.substring(0, 8)}...</p>
             </div>

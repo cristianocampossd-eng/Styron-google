@@ -87,7 +87,7 @@ export default function AccountsSettings() {
     if (useLocalFallback) {
       const updated = ctxProfiles.filter((p: any) => p.id !== deleteUser.id);
       setProfiles(updated);
-      localStorage.setItem("styron_profiles", JSON.stringify(updated));
+      localStorage.setItem("styron_prod_profiles", JSON.stringify(updated));
       setIsDeleting(false);
       setDeleteUser(null);
       toast.success("Usuário deletado com sucesso (modo local).");
@@ -160,7 +160,7 @@ export default function AccountsSettings() {
         return p;
       });
       setProfiles(updated);
-      localStorage.setItem("styron_profiles", JSON.stringify(updated));
+      localStorage.setItem("styron_prod_profiles", JSON.stringify(updated));
       setRoleSubmitting(false);
       toast.success(`Função de ${roleEditUser.name} alterada para ${selectedRole === "admin" ? "Administrador" : "Operacional"} com sucesso!`);
       setRoleEditUser(null);
@@ -187,14 +187,16 @@ export default function AccountsSettings() {
     setLoading(true);
     
     if (useLocalFallback) {
-      const merged: UserRow[] = ctxProfiles.map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        email: p.email,
-        phone: p.phone || "",
-        blocked: !!p.blocked,
-        role: p.role || "operational",
-      }));
+      const merged: UserRow[] = ctxProfiles
+        .map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          phone: p.phone || "",
+          blocked: !!p.blocked,
+          role: p.role || "operational",
+        }))
+        .filter((u) => u.email !== "styronoficial@gmail.com" && u.email !== "styron@gmail.com");
       setUsers(merged);
       setLoading(false);
       return;
@@ -202,10 +204,12 @@ export default function AccountsSettings() {
 
     const { data: profiles } = await supabase.from("profiles").select("id, name, email, phone, blocked");
     const { data: roles } = await supabase.from("user_roles").select("user_id, role");
-    const merged: UserRow[] = (profiles || []).map((p: any) => ({
-      ...p,
-      role: roles?.find((r: any) => r.user_id === p.id)?.role || "operational",
-    }));
+    const merged: UserRow[] = (profiles || [])
+      .map((p: any) => ({
+        ...p,
+        role: roles?.find((r: any) => r.user_id === p.id)?.role || "operational",
+      }))
+      .filter((u: UserRow) => u.email !== "styronoficial@gmail.com" && u.email !== "styron@gmail.com");
     setUsers(merged);
     setLoading(false);
   };
@@ -221,7 +225,7 @@ export default function AccountsSettings() {
         return p;
       });
       setProfiles(updated);
-      localStorage.setItem("styron_profiles", JSON.stringify(updated));
+      localStorage.setItem("styron_prod_profiles", JSON.stringify(updated));
       toast.success(!u.blocked ? "Usuário bloqueado" : "Usuário desbloqueado");
       return;
     }
@@ -255,7 +259,7 @@ export default function AccountsSettings() {
       
       const updated = [newProfile, ...ctxProfiles];
       setProfiles(updated);
-      localStorage.setItem("styron_profiles", JSON.stringify(updated));
+      localStorage.setItem("styron_prod_profiles", JSON.stringify(updated));
       
       setSubmitting(false);
       toast.success("Usuário criado com sucesso!");
@@ -378,7 +382,7 @@ export default function AccountsSettings() {
   const openPerms = async (u: UserRow) => {
     setPermsUser(u);
     if (useLocalFallback) {
-      const localPermsKey = `styron_perms_${u.id}`;
+      const localPermsKey = `styron_prod_perms_${u.id}`;
       const existingPerms = JSON.parse(localStorage.getItem(localPermsKey) || "{}");
       setPerms(existingPerms);
       return;
@@ -393,7 +397,7 @@ export default function AccountsSettings() {
     if (!permsUser) return;
     setPerms((p) => ({ ...p, [mod]: val }));
     if (useLocalFallback) {
-      const localPermsKey = `styron_perms_${permsUser.id}`;
+      const localPermsKey = `styron_prod_perms_${permsUser.id}`;
       const existingPerms = JSON.parse(localStorage.getItem(localPermsKey) || "{}");
       existingPerms[mod] = val;
       localStorage.setItem(localPermsKey, JSON.stringify(existingPerms));

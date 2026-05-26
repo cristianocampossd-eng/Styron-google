@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +15,7 @@ const statusColors: Record<string, string> = { pending: "bg-warning/10 text-warn
 const recLabels: Record<string, string> = { once: "Única", monthly: "Mensal", weekly: "Semanal", yearly: "Anual" };
 
 export default function FinancialRecurring() {
-  const { receivables, addReceivable, payReceivable, projects, accounts, categories, getProjectCode } = useApp();
+  const { receivables, addReceivable, payReceivable, deleteReceivable, projects, accounts, categories, getProjectCode } = useApp();
   const [createOpen, setCreateOpen] = useState(false);
   const [payOpen, setPayOpen] = useState<string | null>(null);
   const [createType, setCreateType] = useState<"income" | "expense">("expense");
@@ -83,6 +83,12 @@ export default function FinancialRecurring() {
     });
     setPayOpen(null);
     setPayDiscount("0"); setPayInterest("0");
+  };
+
+  const handleDelete = async (id: string) => {
+    if (confirm("Deseja realmente excluir este lançamento financeiro de Receita/Despesa?")) {
+      await deleteReceivable(id);
+    }
   };
 
   return (
@@ -172,12 +178,20 @@ export default function FinancialRecurring() {
                   <td className={cn("p-4 text-right font-medium", r.type === "income" ? "text-success" : "text-destructive")}>
                     {fmt(r.value)}
                   </td>
-                  <td className="p-4">
+                  <td className="p-4 flex items-center justify-end gap-2">
                     {r.status !== "paid" && (
                       <Button size="sm" variant={r.type === "income" ? "default" : "outline"} onClick={() => setPayOpen(r.id)}>
                         {r.type === "income" ? "Receber" : "Pagar"}
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="w-8 h-8 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-50"
+                      onClick={() => handleDelete(r.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </td>
                 </tr>
               ))}
