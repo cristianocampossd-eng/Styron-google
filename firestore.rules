@@ -340,7 +340,14 @@ service cloud.firestore {
     match /service_order_attachments/{attachmentId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidServiceOrderAttachment(incoming());
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (
+        isSignedIn() && 
+        exists(/databases/$(database)/documents/service_orders/$(resource.data.service_order_id)) && 
+        (
+          get(/databases/$(database)/documents/service_orders/$(resource.data.service_order_id)).data.created_by == request.auth.uid ||
+          get(/databases/$(database)/documents/service_orders/$(resource.data.service_order_id)).data.assigned_to == request.auth.uid
+        )
+      );
     }
 
     match /notifications/{notificationId} {

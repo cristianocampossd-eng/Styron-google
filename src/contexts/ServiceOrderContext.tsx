@@ -499,7 +499,8 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
           const { error: dbError } = await supabase.from("service_order_attachments").insert({
             service_order_id: inserted.id,
             file_url: pubData.publicUrl,
-            file_type: file.type || ext
+            file_type: file.type || ext,
+            file_name: file.name
           });
           if (dbError) {
             console.error("Erro banco anexo:", dbError);
@@ -514,7 +515,8 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
           const { error: dbError } = await supabase.from("service_order_attachments").insert({
             service_order_id: inserted.id,
             file_url: link.url,
-            file_type: "link"
+            file_type: "link",
+            file_name: link.name || "Link Externo"
           });
           if (dbError) {
             console.error("Erro ao salvar link:", dbError);
@@ -852,7 +854,8 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       const { error: dbError } = await supabase.from("service_order_attachments").insert({
         service_order_id: os.id,
         file_url: pubData.publicUrl,
-        file_type: file.type || ext
+        file_type: file.type || ext,
+        file_name: file.name
       });
       if (dbError) {
         console.error("Erro ao vincular anexo à OS:", dbError);
@@ -890,40 +893,37 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const os = orders.find(o => o.id === osId);
-    if (!os) return;
-
     // Optimistic update
     setOrders((prev) => prev.map((o) => {
       if (o.id !== osId) return o;
       return {
         ...o,
         attachments: o.attachments.filter(a => a.id !== attachmentId),
-        updatedAt: new Date(),
-        timeline: [...o.timeline, {
-             id: crypto.randomUUID(),
-             action: `Anexo removido`,
-             user: currentUser,
-             date: new Date()
-        }]
+        updatedAt: new Date()
       };
     }));
 
-    const { error: dbError } = await supabase.from("service_order_attachments").delete().eq("id", attachmentId).eq("service_order_id", osId);
+    const { error: dbError, data: deletedData } = await supabase.from("service_order_attachments").delete().eq("id", attachmentId).select();
     if (dbError) {
       console.error("Erro ao deletar anexo:", dbError);
       toast.error(`Falha ao excluir anexo: ${dbError.message}`);
-      // Revert optimistic update? Or just show error.
-      loadOrders(); // Revert
+      // Revert in case of error
+      await loadOrders();
+      return;
+    }
+    
+    console.log("Resultado da deleção:", deletedData);
+    
+    if (!deletedData || deletedData.length === 0) {
+      console.warn("Nenhum anexo foi deletado no banco de dados.");
+      toast.error("Anexo não encontrado para exclusão.");
+      await loadOrders(); // Revert
       return;
     }
     
     console.log("Anexo deletado com sucesso do banco.");
-    
-    // We already updated timeline in optimistic, no need to duplicate here.
-    
     toast.success("Anexo removido com sucesso!");
-  }, [orders, currentUserId, useLocalFallback, currentUser, loadOrders]);
+  }, [orders, currentUser, useLocalFallback, loadOrders]);
 
   const addExternalLink = useCallback(async (osId: string, name: string, url: string) => {
     if (useLocalFallback) {
@@ -957,7 +957,8 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
     const { error: dbError } = await supabase.from("service_order_attachments").insert({
       service_order_id: osId,
       file_url: url,
-      file_type: "link"
+      file_type: "link",
+      file_name: name
     });
 
     if (dbError) {

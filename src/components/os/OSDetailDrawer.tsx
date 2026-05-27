@@ -1,6 +1,6 @@
 import { format, isPast, isToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { X, UserCircle, Calendar, FolderKanban, RefreshCw, AlertTriangle, Clock, Upload, Download, Link2, Plus, ExternalLink, Image as ImageIcon, Video, FileText } from "lucide-react";
+import { X, UserCircle, Calendar, FolderKanban, RefreshCw, AlertTriangle, Clock, Upload, Download, Link2, Plus, ExternalLink, Image as ImageIcon, Video, FileText, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -325,7 +325,7 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
                     {order.attachments.map((a) => (
                       <div 
                         key={a.id} 
-                        className="group rounded-lg border bg-muted/30 p-3 flex flex-col items-center justify-center text-center hover:bg-muted transition-colors relative cursor-pointer" 
+                        className="group rounded-xl border bg-card hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-200 p-2 flex flex-col relative cursor-pointer overflow-hidden" 
                         onClick={() => {
                           if (a.type === "image") {
                             setPreviewImage(a.url);
@@ -335,31 +335,58 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
                         }}
                       >
                         <button 
-                          className="absolute -top-1 -right-1 bg-destructive text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                          className="absolute top-1.5 right-1.5 bg-destructive hover:bg-destructive/90 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity z-20 shadow-sm"
                           onClick={(e) => {
                             e.stopPropagation();
                             deleteAttachment(order.id, a.id);
                           }}
                         >
-                          <X className="w-3 h-3" />
+                          <X className="w-3.5 h-3.5" />
                         </button>
-                        <div className="mb-2">
-                          {a.type === "image" ? <ImageIcon className="w-5 h-5 text-purple-500" /> : 
-                           a.type === "video" ? <Video className="w-5 h-5 text-red-500" /> : 
-                           a.type === "link" ? <ExternalLink className="w-5 h-5 text-blue-500" /> : 
-                           <FileText className="w-5 h-5 text-gray-500" />}
-                        </div>
-                        <span className="text-[10px] text-foreground font-medium line-clamp-2 break-all px-1 max-w-full leading-tight" title={a.name}>
-                          {a.name}
-                        </span>
-                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                          {a.type === "link" ? (
-                            <ExternalLink className="w-5 h-5 text-white" />
-                          ) : a.type === "image" ? (
-                            <Plus className="w-5 h-5 text-white" />
+                        
+                        {/* Thumbnail / Box Area */}
+                        <div className="w-full h-24 rounded-lg bg-zinc-50 dark:bg-zinc-900/60 flex items-center justify-center overflow-hidden relative border border-zinc-100 dark:border-zinc-800">
+                          {a.type === "image" ? (
+                            <img 
+                              src={a.url} 
+                              alt={a.name} 
+                              referrerPolicy="no-referrer" 
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" 
+                            />
+                          ) : a.type === "video" ? (
+                            <div className="flex flex-col items-center">
+                              <Video className="w-8 h-8 text-rose-500 mb-1" />
+                              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Video</span>
+                            </div>
+                          ) : a.type === "link" ? (
+                            <div className="flex flex-col items-center">
+                              <Link2 className="w-8 h-8 text-blue-500 mb-1" />
+                              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Link</span>
+                            </div>
                           ) : (
-                            <Download className="w-5 h-5 text-white" />
+                            <div className="flex flex-col items-center">
+                              <FileText className="w-8 h-8 text-zinc-500 mb-1" />
+                              <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Doc</span>
+                            </div>
                           )}
+                          
+                          {/* Hover Overlay */}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-10">
+                            {a.type === "link" ? (
+                              <ExternalLink className="w-6 h-6 text-white" />
+                            ) : a.type === "image" ? (
+                              <Eye className="w-6 h-6 text-white" />
+                            ) : (
+                              <Download className="w-6 h-6 text-white" />
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Title Caption */}
+                        <div className="px-1.5 pt-1.5 pb-0.5 flex flex-col">
+                          <span className="text-[11px] text-zinc-700 dark:text-zinc-200 font-medium line-clamp-1 truncate block leading-normal pr-4" title={a.name}>
+                            {a.name}
+                          </span>
                         </div>
                       </div>
                     ))}
