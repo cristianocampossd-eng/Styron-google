@@ -137,7 +137,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       localAccs = JSON.stringify(mockAccounts);
       localStorage.setItem("styron_prod_accounts", localAccs);
     }
-    setAccounts(JSON.parse(localAccs));
+    const baseAccs = JSON.parse(localAccs);
+    const totalBalance = baseAccs.reduce((sum: any, acc: any) => sum + acc.balance, 0);
+    setAccounts([...baseAccs, { id: "total-balance-account", name: "Saldo Total", balance: totalBalance }]);
+
 
     // 3. Projects
     let localProjs = localStorage.getItem("styron_prod_projects");
@@ -467,7 +470,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   async function loadAccounts() {
     const { data } = await supabase.from("financial_accounts").select("*").order("created_at");
     if (data) {
-      setAccounts(data.map((a: any) => ({ id: a.id, name: a.name, balance: Number(a.balance) })));
+      const baseAccounts = data.map((a: any) => ({ id: a.id, name: a.name, balance: Number(a.balance) }));
+      const totalBalance = baseAccounts.reduce((sum, acc) => sum + acc.balance, 0);
+      setAccounts([...baseAccounts, { id: "total-balance-account", name: "Saldo Total", balance: totalBalance }]);
     }
   }
 
@@ -658,9 +663,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const { error } = await supabase.from("projects").update(updates).eq("id", id);
     if (error) { toast.error("Erro ao atualizar projeto"); return; }
+    
+    const proj = projects.find(p => p.id === id);
+    if (proj && proj.responsible && proj.responsible !== user?.id) {
+      await supabase.from("notifications").insert({
+        user_id: proj.responsible,
+        type: "project",
+        title: "Projeto atualizado",
+        message: `O projeto "${proj.name}" teve uma atualização de status ou andamento.`,
+        link: JSON.stringify({ projectId: id })
+      });
+    }
+
     toast.success("Projeto atualizado!");
     await loadProjects();
-  }, [useLocalFallback]);
+  }, [useLocalFallback, projects, user]);
 
   const updateProjectInvestment = useCallback(async (id: string, value: number) => {
     if (useLocalFallback) {

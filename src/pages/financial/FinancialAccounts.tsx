@@ -121,39 +121,48 @@ export default function FinancialAccounts() {
           .reduce((sum, t) => sum + (t.value || 0), 0);
 
         return (
-          <div
-            key={acc.id}
-            onClick={() => setSelected(acc.id)}
-            className="bg-card rounded-xl border p-5 hover:shadow-md cursor-pointer transition-all animate-slide-up flex flex-col justify-between space-y-4 relative group"
-          >
-            <div>
-              <div className="flex justify-between items-start">
-                <p className="text-sm text-muted-foreground font-medium">{acc.name}</p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="w-7 h-7 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-50 md:opacity-0 group-hover:opacity-100 transition-all"
-                  onClick={(e) => deleteAccount(acc.id, e)}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
+            <div
+              key={acc.id}
+              onClick={() => setSelected(acc.id)}
+              className={cn(
+                "bg-card rounded-xl border p-5 hover:shadow-md cursor-pointer transition-all animate-slide-up flex flex-col justify-between space-y-4 relative group",
+                acc.id === "total-balance-account" && "ring-2 ring-primary bg-primary/5"
+              )}
+            >
+              <div>
+                <div className="flex justify-between items-start">
+                  <p className={cn("text-sm font-medium", acc.id === "total-balance-account" ? "text-primary" : "text-muted-foreground")}>{acc.name}</p>
+                  {acc.id !== "total-balance-account" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="w-7 h-7 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-50 md:opacity-0 group-hover:opacity-100 transition-all"
+                    onClick={(e) => deleteAccount(acc.id, e)}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                  )}
+                </div>
+                <p className="text-2xl font-bold mt-2 text-foreground">{fmt(acc.balance)}</p>
+                {acc.id !== "total-balance-account" && (
+                    <p className="text-[10px] text-muted-foreground/80 mt-1 font-mono">ID: {acc.id.substring(0, 8)}...</p>
+                )}
               </div>
-              <p className="text-2xl font-bold mt-2 text-foreground">{fmt(acc.balance)}</p>
-              <p className="text-[10px] text-muted-foreground/80 mt-1 font-mono">ID: {acc.id.substring(0, 8)}...</p>
+              
+              {acc.id !== "total-balance-account" && (
+                <div className="grid grid-cols-2 gap-2 pt-3 border-t text-xs">
+                  <div className="flex flex-col">
+                    <span className="text-muted-foreground text-[10px] uppercase font-semibold">Entradas</span>
+                    <span className="text-emerald-600 font-bold mt-0.5">+{fmt(totalIncome)}</span>
+                  </div>
+                  <div className="flex flex-col text-right">
+                    <span className="text-muted-foreground text-[10px] uppercase font-semibold">Saídas</span>
+                    <span className="text-red-500 font-bold mt-0.5">-{fmt(totalExpense)}</span>
+                  </div>
+                </div>
+              )}
             </div>
-            
-            <div className="grid grid-cols-2 gap-2 pt-3 border-t text-xs">
-              <div className="flex flex-col">
-                <span className="text-muted-foreground text-[10px] uppercase font-semibold">Entradas</span>
-                <span className="text-emerald-600 font-bold mt-0.5">+{fmt(totalIncome)}</span>
-              </div>
-              <div className="flex flex-col text-right">
-                <span className="text-muted-foreground text-[10px] uppercase font-semibold">Saídas</span>
-                <span className="text-red-500 font-bold mt-0.5">-{fmt(totalExpense)}</span>
-              </div>
-            </div>
-          </div>
         );
       })}
       {accounts.length === 0 && (

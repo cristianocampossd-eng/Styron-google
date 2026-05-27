@@ -564,6 +564,17 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       const obsPayload = stringifyObservation(os.description, os.dueDate, os.deadlineExtensionRequest, os.comments, newTimeline);
       
       await supabase.from("service_orders").update({ status, observation: obsPayload }).eq("id", osId);
+      
+      if (['completed', 'archived'].includes(status)) {
+        await supabase.from("notifications").insert({
+          user_id: [os.creator, os.responsible].find(id => id && id !== currentUserId) || os.responsible,
+          type: "os",
+          title: `OS ${status === 'completed' ? 'concluída' : 'arquivada'}`,
+          message: `A Ordem de Serviço "${os.title}" foi ${status === 'completed' ? 'concluída' : 'arquivada'}.`,
+          link: os.id,
+        });
+      }
+      
       await loadOrders();
     })();
   }, [orders, currentUserId, useLocalFallback, currentUser]);
