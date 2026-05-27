@@ -6,7 +6,7 @@ CREATE POLICY "Users can delete attachments of their OS"
   USING (
     EXISTS (
       SELECT 1 FROM public.service_orders so
-      WHERE so.id = public.service_order_attachments.service_order_id
+      WHERE so.id = service_order_attachments.service_order_id
       AND (so.created_by = auth.uid() OR so.assigned_to = auth.uid() OR public.has_role(auth.uid(), 'admin'))
     )
   );

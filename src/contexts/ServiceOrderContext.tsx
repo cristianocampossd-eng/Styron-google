@@ -1001,12 +1001,27 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       };
     }));
 
-    const { error: dbError } = await supabase.from("service_order_attachments").delete().eq("id", attachmentId);
+    const { error: dbError, data: deletedData } = await supabase
+      .from("service_order_attachments")
+      .delete()
+      .eq("id", attachmentId)
+      .select();
+
     if (dbError) {
       console.error("Erro ao deletar anexo:", dbError);
       toast.error(`Falha ao excluir anexo: ${dbError.message}`);
       // Revert in case of error
       await loadOrders();
+      return;
+    }
+    
+    if (!deletedData || deletedData.length === 0) {
+      console.warn("Nenhum anexo foi deletado no banco de dados. RLS possivelmente bloqueando ou registro inexistente.");
+      toast.error(
+        "A exclusão não foi autorizada pelo seu banco de dados (RLS). " +
+        "Certifique-se de executar as novas migrações SQL no painel do Supabase para ativar a exclusão de anexos."
+      );
+      await loadOrders(); // Revert from optimistic update
       return;
     }
     
