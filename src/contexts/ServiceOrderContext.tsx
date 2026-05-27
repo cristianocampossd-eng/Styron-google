@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./AuthContext";
 import { useApp } from "./AppContext";
 import { toast } from "sonner";
+import { playBeepSound } from "@/lib/utils";
 
 export type OSStatus = "sent" | "received" | "in_progress" | "awaiting_adjustment" | "completed" | "archived";
 export type OSPriority = "low" | "medium" | "high" | "urgent";
@@ -266,7 +267,18 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       .channel("service-orders-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "service_orders" }, () => loadOrders())
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+
+    const channelNotifs = supabase
+      .channel("os-notifications-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, () => {
+        loadOSNotifications();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(channelNotifs);
+    };
   }, [user, useLocalFallback]);
 
   async function loadOrders() {
@@ -443,6 +455,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
           user: currentUser
         };
         setNotifications((prev) => [newNotif, ...prev]);
+        playBeepSound();
         return newId;
       }
 
@@ -612,6 +625,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
         user: currentUser
       };
       setNotifications((prev) => [newNotif, ...prev]);
+      playBeepSound();
       return;
     }
 
@@ -662,6 +676,9 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
           user: currentUser
         }));
         setNotifications((prev) => [...newNotifs, ...prev]);
+        if (newNotifs.length > 0) {
+          playBeepSound();
+        }
       }
       return;
     }

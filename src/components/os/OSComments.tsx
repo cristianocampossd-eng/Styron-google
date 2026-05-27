@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Send, User, Image as ImageIcon, X, Pencil } from "lucide-react";
@@ -23,12 +23,21 @@ export function OSComments({ comments, onAdd, onEdit, currentUser }: Props) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const commentsEndRef = useRef<HTMLDivElement>(null);
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
   const [isUpdatingComment, setIsUpdatingComment] = useState(false);
 
   const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+
+  const scrollToBottom = () => {
+    commentsEndRef.current?.scrollIntoView({ behavior: "auto" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [comments]);
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -54,6 +63,38 @@ export function OSComments({ comments, onAdd, onEdit, currentUser }: Props) {
     setSelectedImage(null);
     setImagePreview(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboardItems = e.clipboardData?.items;
+    if (!clipboardItems) return;
+
+    for (let i = 0; i < clipboardItems.length; i++) {
+      const item = clipboardItems[i];
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) {
+          if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+            toast.error("Por favor, cole apenas imagens ou vídeos.");
+            continue;
+          }
+          if (file.size > MAX_FILE_SIZE) {
+            toast.error("O arquivo colado é muito grande. O limite é 500MB.");
+            continue;
+          }
+          
+          e.preventDefault();
+          setSelectedImage(file);
+          if (file.type.startsWith('image/')) {
+            setImagePreview(URL.createObjectURL(file));
+          } else {
+            setImagePreview(null);
+          }
+          toast.success(`${file.type.startsWith('image/') ? "Imagem" : "Vídeo"} colada da área de transferência!`);
+          break;
+        }
+      }
+    }
   };
 
   const handleSend = async () => {
@@ -205,6 +246,7 @@ export function OSComments({ comments, onAdd, onEdit, currentUser }: Props) {
             </div>
           );
         })}
+        <div ref={commentsEndRef} />
       </div>
       
       {imagePreview ? (
@@ -234,6 +276,7 @@ export function OSComments({ comments, onAdd, onEdit, currentUser }: Props) {
         <Textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onPaste={handlePaste}
           placeholder="Escreva um comentário..."
           className="min-h-[40px] max-h-20 resize-none text-sm py-2"
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}

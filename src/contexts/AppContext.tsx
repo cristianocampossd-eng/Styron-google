@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, type React
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./AuthContext";
 import { toast } from "sonner";
+import { playBeepSound } from "@/lib/utils";
 import {
   type Project,
   type Transaction,
@@ -302,8 +303,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!user || useLocalFallback) return;
     const channel = supabase
       .channel("notifications-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${user.id}` }, (payload) => {
         loadNotifications();
+        if (payload?.eventType === "INSERT") {
+          playBeepSound();
+        }
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -1331,6 +1335,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         link: n.link ? { projectId: n.link, taskId: "" } : undefined
       };
       setNotifications((prev) => [newNotif, ...prev]);
+      playBeepSound();
       return;
     }
 
