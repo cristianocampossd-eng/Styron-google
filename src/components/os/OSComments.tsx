@@ -106,10 +106,10 @@ export function OSComments({ comments, onAdd, onEdit, currentUser }: Props) {
       if (selectedImage) {
         const ext = selectedImage.name.split('.').pop() || 'png';
         const isVideo = selectedImage.type.startsWith('video/');
-        const path = `chat-images/${crypto.randomUUID()}.${ext}`;
+        const path = `os-attachments/chat-images/${crypto.randomUUID()}.${ext}`;
         
         const { error } = await supabase.storage.from("company-assets").upload(path, selectedImage, {
-          resumable: true
+          upsert: true
         });
         if (error) {
           console.error("Erro no upload do chat-images:", error);

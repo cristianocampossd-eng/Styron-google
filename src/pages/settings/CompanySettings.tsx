@@ -41,8 +41,7 @@ export default function CompanySettings() {
     setUploading(true);
     const path = `logo-${Date.now()}-${file.name}`;
     const { error } = await supabase.storage.from("company-assets").upload(path, file, { 
-      upsert: true,
-      resumable: true 
+      upsert: true
     });
     if (error) { toast.error("Erro no upload"); setUploading(false); return; }
     const { data } = supabase.storage.from("company-assets").getPublicUrl(path);

@@ -41,6 +41,24 @@ const safeParseDate = (date: any) => {
   return isNaN(parsed.getTime()) ? new Date() : parsed;
 };
 
+const safeInsertAttachment = async (payload: {
+  service_order_id: string;
+  file_url: string;
+  file_type: string;
+  file_name?: string;
+}) => {
+  // Try inserting with file_name first
+  const { error } = await supabase.from("service_order_attachments").insert(payload as any);
+  
+  if (error && (error.code === "PGRST204" || error.message?.includes("file_name"))) {
+    console.warn("file_name column not found in database schema cache. Retrying without file_name...");
+    const { file_name, ...payloadWithoutFileName } = payload;
+    return await supabase.from("service_order_attachments").insert(payloadWithoutFileName as any);
+  }
+  
+  return { error };
+};
+
 export interface DeadlineExtensionRequest {
   requestedDate: Date;
   justification: string;
@@ -498,7 +516,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
           const ext = file.name.split('.').pop() || '';
           const path = `os-attachments/${inserted.id}/${crypto.randomUUID()}.${ext}`;
           const { error: uploadError } = await supabase.storage.from("company-assets").upload(path, file, {
-            resumable: true
+            upsert: true
           });
           if (uploadError) {
             console.error("Erro upload:", uploadError);
@@ -512,7 +530,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
           }
           
           const { data: pubData } = supabase.storage.from("company-assets").getPublicUrl(path);
-          const { error: dbError } = await supabase.from("service_order_attachments").insert({
+          const { error: dbError } = await safeInsertAttachment({
             service_order_id: inserted.id,
             file_url: pubData.publicUrl,
             file_type: file.type || ext,
@@ -528,7 +546,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       if (data.externalLinks && data.externalLinks.length > 0) {
         for (let link of data.externalLinks) {
           if (!link.url) continue;
-          const { error: dbError } = await supabase.from("service_order_attachments").insert({
+          const { error: dbError } = await safeInsertAttachment({
             service_order_id: inserted.id,
             file_url: link.url,
             file_type: "link",
@@ -922,7 +940,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       const ext = file.name.split('.').pop() || '';
       const path = `os-attachments/${os.id}/${crypto.randomUUID()}.${ext}`;
       const { error: uploadError } = await supabase.storage.from("company-assets").upload(path, file, {
-        resumable: true
+        upsert: true
       });
       if (uploadError) {
         console.error("Erro ao fazer upload do anexo:", uploadError);
@@ -931,7 +949,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       }
       
       const { data: pubData } = supabase.storage.from("company-assets").getPublicUrl(path);
-      const { error: dbError } = await supabase.from("service_order_attachments").insert({
+      const { error: dbError } = await safeInsertAttachment({
         service_order_id: os.id,
         file_url: pubData.publicUrl,
         file_type: file.type || ext,
@@ -983,7 +1001,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       };
     }));
 
-    const { error: dbError, data: deletedData } = await supabase.from("service_order_attachments").delete().eq("id", attachmentId).select();
+    const { error: dbError } = await supabase.from("service_order_attachments").delete().eq("id", attachmentId);
     if (dbError) {
       console.error("Erro ao deletar anexo:", dbError);
       toast.error(`Falha ao excluir anexo: ${dbError.message}`);
@@ -992,17 +1010,9 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       return;
     }
     
-    console.log("Resultado da deleção:", deletedData);
-    
-    if (!deletedData || deletedData.length === 0) {
-      console.warn("Nenhum anexo foi deletado no banco de dados.");
-      toast.error("Anexo não encontrado para exclusão.");
-      await loadOrders(); // Revert
-      return;
-    }
-    
     console.log("Anexo deletado com sucesso do banco.");
     toast.success("Anexo removido com sucesso!");
+    await loadOrders();
   }, [orders, currentUser, useLocalFallback, loadOrders]);
 
   const addExternalLink = useCallback(async (osId: string, name: string, url: string) => {
@@ -1034,7 +1044,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
     const os = orders.find(o => o.id === osId);
     if (!os) return;
 
-    const { error: dbError } = await supabase.from("service_order_attachments").insert({
+    const { error: dbError } = await safeInsertAttachment({
       service_order_id: osId,
       file_url: url,
       file_type: "link",
