@@ -245,8 +245,8 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
             )}
             {order.status === "completed" && (
               <Button size="sm" variant="secondary" onClick={() => {
-                if (!isResponsible) {
-                  toast.error("A ação só pode ser realizada pelo responsável. Por favor, solicite a ele a realização da ação.");
+                if (!isResponsible && !isCreator) {
+                  toast.error("A ação só pode ser realizada pelo responsável ou pelo criador da OS. Por favor, solicite a eles a realização da ação.");
                   return;
                 }
                 handleStatus("archived", "Arquivado pelo responsável");
@@ -255,8 +255,8 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
             )}
             {order.status === "archived" && (
               <Button size="sm" variant="outline" onClick={() => {
-                if (!isResponsible) {
-                  toast.error("A ação só pode ser realizada pelo responsável. Por favor, solicite a ele a realização da ação.");
+                if (!isResponsible && !isCreator) {
+                  toast.error("A ação só pode ser realizada pelo responsável ou pelo criador da OS. Por favor, solicite a eles a realização da ação.");
                   return;
                 }
                 handleStatus("completed", "Desarquivado pelo responsável");
