@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./AuthContext";
 import { useApp } from "./AppContext";
@@ -165,6 +167,7 @@ interface ServiceOrderContextType {
   updateStatus: (osId: string, status: OSStatus) => void;
   reassign: (osId: string, newResponsible: string) => void;
   addComment: (osId: string, text: string, imageUrl?: string, videoUrl?: string) => Promise<void>;
+  editComment: (osId: string, commentId: string, newText: string) => Promise<void>;
   addAttachment: (osId: string, files: File[]) => Promise<void>;
   deleteAttachment: (osId: string, attachmentId: string) => Promise<void>;
   addExternalLink: (osId: string, name: string, url: string) => Promise<void>;
@@ -691,6 +694,66 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
     await loadOSNotifications();
   }, [orders, currentUser, currentUserId, useLocalFallback]);
 
+  const editComment = useCallback(async (osId: string, commentId: string, newText: string) => {
+    const os = orders.find((o) => o.id === osId);
+    if (!os) return;
+
+    const comment = os.comments.find((c) => c.id === commentId);
+    if (!comment) return;
+
+    const isMe = comment.authorId === currentUserId || comment.author === currentUser;
+    if (!isMe) {
+      toast.error("Somente o autor da mensagem pode editá-la.");
+      return;
+    }
+
+    const commentDate = new Date(comment.date);
+    const tenMinutesInMs = 10 * 60 * 1000;
+    if (Date.now() - commentDate.getTime() > tenMinutesInMs) {
+      toast.error("Você só pode editar mensagens enviadas nos últimos 10 minutos.");
+      return;
+    }
+
+    const originalDateFormatted = format(commentDate, "dd/MM/yyyy HH:mm:ss", { locale: ptBR });
+    const currentDateFormatted = format(new Date(), "dd/MM/yyyy HH:mm:ss", { locale: ptBR });
+    
+    const newTimelineEntry: OSTimelineEntry = {
+      id: crypto.randomUUID(),
+      action: "Mensagem editada no chat",
+      user: currentUser,
+      date: new Date(),
+      details: `Texto anterior (${originalDateFormatted}): "${comment.text}"\nTexto novo (${currentDateFormatted}): "${newText.trim()}"`
+    };
+
+    if (useLocalFallback) {
+      setOrders((prev) => prev.map((o) => {
+        if (o.id !== osId) return o;
+        return {
+          ...o,
+          comments: o.comments.map((c) => c.id === commentId ? { ...c, text: newText.trim() } : c),
+          timeline: [...o.timeline, newTimelineEntry],
+          updatedAt: new Date()
+        };
+      }));
+      toast.success("Mensagem editada com sucesso!");
+      return;
+    }
+
+    const updatedComments = os.comments.map((c) => c.id === commentId ? { ...c, text: newText.trim() } : c);
+    const updatedTimeline = [...os.timeline, newTimelineEntry];
+    const obsPayload = stringifyObservation(os.description, os.dueDate, os.deadlineExtensionRequest, updatedComments, updatedTimeline);
+    
+    const { error: dbError } = await supabase.from("service_orders").update({ observation: obsPayload }).eq("id", osId);
+    if (dbError) {
+      console.error("Erro ao editar comentário na OS:", dbError);
+      toast.error(`Falha ao editar mensagem: ${dbError.message}`);
+      return;
+    }
+
+    await loadOrders();
+    toast.success("Mensagem editada com sucesso!");
+  }, [orders, currentUser, currentUserId, useLocalFallback, loadOrders]);
+
   const markNotificationRead = useCallback((notifId: string) => {
     if (useLocalFallback) {
       setNotifications((prev) => prev.map((n) => (n.id === notifId ? { ...n, read: true } : n)));
@@ -981,7 +1044,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
 
   return (
     <ServiceOrderContext.Provider
-      value={{ orders, notifications, currentUser, createOrder, updateStatus, reassign, addComment, addAttachment, deleteAttachment, addExternalLink, markNotificationRead, markAllNotificationsRead, archiveOrder, requestMoreTime, respondTimeRequest }}
+      value={{ orders, notifications, currentUser, createOrder, updateStatus, reassign, addComment, editComment, addAttachment, deleteAttachment, addExternalLink, markNotificationRead, markAllNotificationsRead, archiveOrder, requestMoreTime, respondTimeRequest }}
     >
       {children}
     </ServiceOrderContext.Provider>

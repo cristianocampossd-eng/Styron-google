@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { Send, User, Image as ImageIcon, X } from "lucide-react";
+import { Send, User, Image as ImageIcon, X, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { OSComment } from "@/contexts/ServiceOrderContext";
@@ -12,16 +12,21 @@ import { ImagePreviewModal } from "./ImagePreviewModal";
 interface Props {
   comments: OSComment[];
   onAdd: (text: string, imageUrl?: string, videoUrl?: string) => void;
+  onEdit?: (commentId: string, newText: string) => Promise<void>;
   currentUser: string;
 }
 
-export function OSComments({ comments, onAdd, currentUser }: Props) {
+export function OSComments({ comments, onAdd, onEdit, currentUser }: Props) {
   const [text, setText] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [isUpdatingComment, setIsUpdatingComment] = useState(false);
 
   const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 
@@ -95,6 +100,19 @@ export function OSComments({ comments, onAdd, currentUser }: Props) {
     }
   };
 
+  const handleSaveEdit = async (id: string) => {
+    if (!editingText.trim() || !onEdit) return;
+    setIsUpdatingComment(true);
+    try {
+      await onEdit(id, editingText);
+      setEditingCommentId(null);
+    } catch (e) {
+      console.error("Erro ao salvar edição:", e);
+    } finally {
+      setIsUpdatingComment(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <ImagePreviewModal imageUrl={previewImage} onClose={() => setPreviewImage(null)} />
@@ -104,6 +122,11 @@ export function OSComments({ comments, onAdd, currentUser }: Props) {
         )}
         {comments.map((c) => {
           const isMe = c.author === currentUser;
+          const commentDate = new Date(c.date);
+          const isWithinTenMinutes = (Date.now() - commentDate.getTime()) <= 10 * 60 * 1000;
+          const canEdit = isMe && isWithinTenMinutes && !!onEdit;
+          const isEditingThis = editingCommentId === c.id;
+
           return (
             <div key={c.id} className={`flex gap-2 ${isMe ? "flex-row-reverse" : ""}`}>
               <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
@@ -117,7 +140,64 @@ export function OSComments({ comments, onAdd, currentUser }: Props) {
                 {c.videoUrl && (
                   <video src={c.videoUrl} controls className="w-full max-w-[250px] rounded-md mb-2" />
                 )}
-                <p className="text-sm whitespace-pre-wrap">{c.text}</p>
+                
+                {isEditingThis ? (
+                  <div className="mt-1 flex flex-col gap-1.5 w-full min-w-[180px]">
+                    <Textarea
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      className="bg-background text-foreground text-sm min-h-[60px] max-h-32 resize-none"
+                      disabled={isUpdatingComment}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSaveEdit(c.id);
+                        } else if (e.key === "Escape") {
+                          setEditingCommentId(null);
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={`h-7 px-2 text-xs ${isMe ? "text-primary-foreground/90 hover:bg-primary-foreground/10 hover:text-primary-foreground" : "text-muted-foreground hover:bg-muted-foreground/10"}`}
+                        onClick={() => setEditingCommentId(null)}
+                        disabled={isUpdatingComment}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={isMe ? "secondary" : "default"}
+                        className="h-7 px-2 text-xs font-medium"
+                        onClick={() => handleSaveEdit(c.id)}
+                        disabled={!editingText.trim() || isUpdatingComment}
+                      >
+                        {isUpdatingComment ? "Salvando..." : "Salvar"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm whitespace-pre-wrap leading-relaxed break-words">{c.text}</p>
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          setEditingCommentId(c.id);
+                          setEditingText(c.text);
+                        }}
+                        className={`text-[10px] flex items-center gap-1 font-medium mt-1 uppercase tracking-wider transition-opacity hover:opacity-100 ${
+                          isMe ? "text-primary-foreground/80 opacity-70" : "text-muted-foreground opacity-60"
+                        }`}
+                      >
+                        <Pencil className="w-2.5 h-2.5" /> Editar
+                      </button>
+                    )}
+                  </>
+                )}
+
                 <p className={`text-[10px] mt-1 text-right ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                   {format(c.date, "dd/MM HH:mm", { locale: ptBR })}
                 </p>

@@ -23,7 +23,7 @@ interface Props {
 }
 
 export function OSDetailDrawer({ order, open, onClose }: Props) {
-  const { updateStatus, reassign, addComment, requestMoreTime, respondTimeRequest, addAttachment, deleteAttachment, addExternalLink } = useServiceOrders();
+  const { updateStatus, reassign, addComment, editComment, requestMoreTime, respondTimeRequest, addAttachment, deleteAttachment, addExternalLink } = useServiceOrders();
   const { projects, profiles } = useApp();
   const { user } = useAuth();
   const [reassignUser, setReassignUser] = useState("");
@@ -402,7 +402,7 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
               <OSTimeline entries={order.timeline} />
             </TabsContent>
             <TabsContent value="comments" className="mt-3">
-              <OSComments comments={order.comments} onAdd={(text, imageUrl, videoUrl) => addComment(order.id, text, imageUrl, videoUrl)} currentUser={getProfileName(currentUserId)} />
+              <OSComments comments={order.comments} onAdd={(text, imageUrl, videoUrl) => addComment(order.id, text, imageUrl, videoUrl)} onEdit={(commentId, newText) => editComment(order.id, commentId, newText)} currentUser={getProfileName(currentUserId)} />
             </TabsContent>
           </Tabs>
         </div>
