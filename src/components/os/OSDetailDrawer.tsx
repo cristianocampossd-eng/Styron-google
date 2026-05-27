@@ -23,7 +23,7 @@ interface Props {
 }
 
 export function OSDetailDrawer({ order, open, onClose }: Props) {
-  const { updateStatus, reassign, addComment, requestMoreTime, respondTimeRequest, addAttachment, addExternalLink } = useServiceOrders();
+  const { updateStatus, reassign, addComment, requestMoreTime, respondTimeRequest, addAttachment, deleteAttachment, addExternalLink } = useServiceOrders();
   const { projects, profiles } = useApp();
   const { user } = useAuth();
   const [reassignUser, setReassignUser] = useState("");
@@ -31,6 +31,29 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const file = items[i].getAsFile();
+        if (file && order) {
+          setIsUploading(true);
+          const loadingToast = toast.loading("Enviando anexo colado...");
+          try {
+            await addAttachment(order.id, [file]);
+            toast.dismiss(loadingToast);
+            toast.success("Imagem colada com sucesso!");
+          } catch (err) {
+            toast.dismiss(loadingToast);
+            console.error("Erro no upload (colar):", err);
+          } finally {
+            setIsUploading(false);
+          }
+        }
+      }
+    }
+  };
 
   const [linkMode, setLinkMode] = useState(false);
   const [linkName, setLinkName] = useState("");
@@ -115,7 +138,7 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-lg overflow-y-auto" onPaste={handlePaste}>
         <SheetHeader className="pb-4 border-b">
           <div className="flex items-center justify-between">
             <SheetTitle className="text-lg">{order.number}</SheetTitle>
@@ -311,6 +334,15 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
                           }
                         }}
                       >
+                        <button 
+                          className="absolute -top-1 -right-1 bg-destructive text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteAttachment(order.id, a.id);
+                          }}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
                         <div className="mb-2">
                           {a.type === "image" ? <ImageIcon className="w-5 h-5 text-purple-500" /> : 
                            a.type === "video" ? <Video className="w-5 h-5 text-red-500" /> : 

@@ -166,6 +166,7 @@ interface ServiceOrderContextType {
   reassign: (osId: string, newResponsible: string) => void;
   addComment: (osId: string, text: string, imageUrl?: string, videoUrl?: string) => Promise<void>;
   addAttachment: (osId: string, files: File[]) => Promise<void>;
+  deleteAttachment: (osId: string, attachmentId: string) => Promise<void>;
   addExternalLink: (osId: string, name: string, url: string) => Promise<void>;
   markNotificationRead: (notifId: string) => void;
   markAllNotificationsRead: () => void;
@@ -389,6 +390,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       attachments?: File[];
       externalLinks?: { name: string; url: string }[];
     }) => {
+      console.log("CreateOrder called with attachments count:", data.attachments?.length);
       if (useLocalFallback) {
         const newId = `os-${Date.now()}`;
         const newNo = `OS-${String(orders.length + 1).padStart(3, "0")}`;
@@ -471,6 +473,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       if (data.attachments && data.attachments.length > 0) {
         let allSuccess = true;
         for (let file of data.attachments) {
+          console.log("Processing file:", file.name, file.size);
           if (file.size > 500 * 1024 * 1024) {
             toast.error(`Arquivo ${file.name} é muito grande. O limite é 500MB.`);
             allSuccess = false;
@@ -496,8 +499,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
           const { error: dbError } = await supabase.from("service_order_attachments").insert({
             service_order_id: inserted.id,
             file_url: pubData.publicUrl,
-            file_type: file.type || ext,
-            file_name: file.name
+            file_type: file.type || ext
           });
           if (dbError) {
             console.error("Erro banco anexo:", dbError);
@@ -512,8 +514,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
           const { error: dbError } = await supabase.from("service_order_attachments").insert({
             service_order_id: inserted.id,
             file_url: link.url,
-            file_type: "link",
-            file_name: link.name || "Link Externo"
+            file_type: "link"
           });
           if (dbError) {
             console.error("Erro ao salvar link:", dbError);
@@ -843,11 +844,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       });
       if (uploadError) {
         console.error("Erro ao fazer upload do anexo:", uploadError);
-        if (uploadError.message.includes('exceeded the maximum allowed size')) {
-          toast.error(`Arquivo ${file.name} excede o limite do Supabase (50MB no plano gratuito).`);
-        } else {
-          toast.error(`Falha no upload do arquivo ${file.name}: ${uploadError.message}`);
-        }
+        toast.error(`Falha no upload do arquivo ${file.name}: ${uploadError.message}`);
         continue;
       }
       
@@ -855,8 +852,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       const { error: dbError } = await supabase.from("service_order_attachments").insert({
         service_order_id: os.id,
         file_url: pubData.publicUrl,
-        file_type: file.type || ext,
-        file_name: file.name
+        file_type: file.type || ext
       });
       if (dbError) {
         console.error("Erro ao vincular anexo à OS:", dbError);
@@ -874,6 +870,60 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
       toast.success(`${successCount} anexos enviados com sucesso!`);
     }
   }, [orders, currentUserId, useLocalFallback, currentUser]);
+
+  const deleteAttachment = useCallback(async (osId: string, attachmentId: string) => {
+    if (useLocalFallback) {
+      setOrders((prev) => prev.map((o) => {
+        if (o.id !== osId) return o;
+        return {
+          ...o,
+          attachments: o.attachments.filter(a => a.id !== attachmentId),
+          updatedAt: new Date(),
+          timeline: [...o.timeline, {
+             id: `tl-${Date.now()}`,
+             action: `Anexo removido`,
+             user: currentUser,
+             date: new Date()
+          }]
+        };
+      }));
+      return;
+    }
+
+    const os = orders.find(o => o.id === osId);
+    if (!os) return;
+
+    // Optimistic update
+    setOrders((prev) => prev.map((o) => {
+      if (o.id !== osId) return o;
+      return {
+        ...o,
+        attachments: o.attachments.filter(a => a.id !== attachmentId),
+        updatedAt: new Date(),
+        timeline: [...o.timeline, {
+             id: crypto.randomUUID(),
+             action: `Anexo removido`,
+             user: currentUser,
+             date: new Date()
+        }]
+      };
+    }));
+
+    const { error: dbError } = await supabase.from("service_order_attachments").delete().eq("id", attachmentId).eq("service_order_id", osId);
+    if (dbError) {
+      console.error("Erro ao deletar anexo:", dbError);
+      toast.error(`Falha ao excluir anexo: ${dbError.message}`);
+      // Revert optimistic update? Or just show error.
+      loadOrders(); // Revert
+      return;
+    }
+    
+    console.log("Anexo deletado com sucesso do banco.");
+    
+    // We already updated timeline in optimistic, no need to duplicate here.
+    
+    toast.success("Anexo removido com sucesso!");
+  }, [orders, currentUserId, useLocalFallback, currentUser, loadOrders]);
 
   const addExternalLink = useCallback(async (osId: string, name: string, url: string) => {
     if (useLocalFallback) {
@@ -930,7 +980,7 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
 
   return (
     <ServiceOrderContext.Provider
-      value={{ orders, notifications, currentUser, createOrder, updateStatus, reassign, addComment, addAttachment, addExternalLink, markNotificationRead, markAllNotificationsRead, archiveOrder, requestMoreTime, respondTimeRequest }}
+      value={{ orders, notifications, currentUser, createOrder, updateStatus, reassign, addComment, addAttachment, deleteAttachment, addExternalLink, markNotificationRead, markAllNotificationsRead, archiveOrder, requestMoreTime, respondTimeRequest }}
     >
       {children}
     </ServiceOrderContext.Provider>

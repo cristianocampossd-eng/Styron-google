@@ -48,6 +48,19 @@ export function CreateOSModal({ open, onClose }: Props) {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+            const file = items[i].getAsFile();
+            if (file) {
+                setFiles((prev) => [...prev, file]);
+                toast.success("Imagem colada da área de transferência");
+            }
+        }
+    }
+  };
+
   const handleCreate = async () => {
     if (!projectId || !responsible || !title) { 
       toast.error("Preencha os campos obrigatórios."); 
@@ -121,116 +134,120 @@ export function CreateOSModal({ open, onClose }: Props) {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Nova Ordem de Serviço</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <Label>Título *</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Resumo da OS" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Projeto *</Label>
-              <Select value={projectId} onValueChange={setProjectId}>
-                <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                <SelectContent>
-                  {projects.filter((p) => p.status !== "archived").map((p) => <SelectItem key={p.id} value={p.id}>{getProjectCode(p.id)} - {p.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Atribuir a *</Label>
-              <Select value={responsible} onValueChange={setResponsible}>
-                <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                <SelectContent>
-                  {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Prioridade</Label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as OSPriority)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Baixa</SelectItem>
-                  <SelectItem value="medium">Média</SelectItem>
-                  <SelectItem value="high">Alta</SelectItem>
-                  <SelectItem value="urgent">Urgente</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Prazo de Entrega</Label>
-              <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <Label>Observação</Label>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descreva a OS detalhadamente..." className="min-h-[100px]" />
-          </div>
-          <div>
-            <Label>Anexos</Label>
-            <input
-              type="file"
-              ref={fileInputRef}
-              className="hidden"
-              multiple
-              onChange={handleFileChange}
-            />
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-              className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-accent/30 transition-all"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">Arraste arquivos ou clique para adicionar</p>
-              <p className="text-xs text-muted-foreground mt-1">Fotos, vídeos e documentos</p>
-            </div>
-            {files.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {files.map((f, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 bg-muted text-xs px-2 py-1 rounded-lg">
-                    {f.name}
-                    <button onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}><X className="w-3 h-3" /></button>
-                  </span>
-                ))}
+        <div className="flex flex-col max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Nova Ordem de Serviço</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto p-1" onPaste={handlePaste}>
+            <div className="space-y-4">
+              <div>
+                <Label>Título *</Label>
+                <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Resumo da OS" />
               </div>
-            )}
-          </div>
-          <div>
-            <Label>Links (Google Drive, Youtube, etc)</Label>
-            <div className="flex gap-2 mt-1">
-              <div className="flex-1 space-y-2">
-                <Input value={newLinkName} onChange={(e) => setNewLinkName(e.target.value)} placeholder="Nome do link (opcional)" className="h-8 text-xs" />
-                <Input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="https://..." className="h-8 text-xs" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Projeto *</Label>
+                  <Select value={projectId} onValueChange={setProjectId}>
+                    <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                    <SelectContent>
+                      {projects.filter((p) => p.status !== "archived").map((p) => <SelectItem key={p.id} value={p.id}>{getProjectCode(p.id)} - {p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Atribuir a *</Label>
+                  <Select value={responsible} onValueChange={setResponsible}>
+                    <SelectTrigger><SelectValue placeholder="Selecionar" /></SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <Button type="button" size="icon" variant="outline" className="h-auto" onClick={addLink}>
-                <Plus className="w-4 h-4" />
-              </Button>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Prioridade</Label>
+                  <Select value={priority} onValueChange={(v) => setPriority(v as OSPriority)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Baixa</SelectItem>
+                      <SelectItem value="medium">Média</SelectItem>
+                      <SelectItem value="high">Alta</SelectItem>
+                      <SelectItem value="urgent">Urgente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Prazo de Entrega</Label>
+                  <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <Label>Observação</Label>
+                <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Descreva a OS detalhadamente..." className="min-h-[100px]" />
+              </div>
+              <div>
+                <Label>Anexos</Label>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  multiple
+                  onChange={handleFileChange}
+                />
+                <div
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDrop}
+                  className="border-2 border-dashed rounded-xl p-6 text-center cursor-pointer hover:border-primary/50 hover:bg-accent/30 transition-all"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">Arraste arquivos ou clique para adicionar</p>
+                  <p className="text-xs text-muted-foreground mt-1">Fotos, vídeos e documentos</p>
+                </div>
+                {files.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {files.map((f, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 bg-muted text-xs px-2 py-1 rounded-lg">
+                        {f.name}
+                        <button onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}><X className="w-3 h-3" /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <Label>Links (Google Drive, Youtube, etc)</Label>
+                <div className="flex gap-2 mt-1">
+                  <div className="flex-1 space-y-2">
+                    <Input value={newLinkName} onChange={(e) => setNewLinkName(e.target.value)} placeholder="Nome do link (opcional)" className="h-8 text-xs" />
+                    <Input value={newLinkUrl} onChange={(e) => setNewLinkUrl(e.target.value)} placeholder="https://..." className="h-8 text-xs" />
+                  </div>
+                  <Button type="button" size="icon" variant="outline" className="h-auto" onClick={addLink}>
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                {links.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {links.map((l, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-100 text-[10px] px-2 py-1 rounded-lg max-w-[200px]">
+                        <LinkIcon className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{l.name}</span>
+                        <button onClick={() => removeLink(i)} className="hover:text-blue-900"><X className="w-3 h-3" /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            {links.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {links.map((l, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-100 text-[10px] px-2 py-1 rounded-lg max-w-[200px]">
-                    <LinkIcon className="w-3 h-3 shrink-0" />
-                    <span className="truncate">{l.name}</span>
-                    <button onClick={() => removeLink(i)} className="hover:text-blue-900"><X className="w-3 h-3" /></button>
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => { reset(); onClose(); }} disabled={isSubmitting}>Cancelar</Button>
+            <Button onClick={handleCreate} disabled={isSubmitting}>
+              {isSubmitting ? "Criando..." : "Criar OS"}
+            </Button>
+          </DialogFooter>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => { reset(); onClose(); }} disabled={isSubmitting}>Cancelar</Button>
-          <Button onClick={handleCreate} disabled={isSubmitting}>
-            {isSubmitting ? "Criando..." : "Criar OS"}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
