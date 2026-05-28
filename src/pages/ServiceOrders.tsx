@@ -18,6 +18,12 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
+export const cleanOSNumber = (num: string) => {
+  if (!num) return "";
+  const match = num.match(/(OS[-_]?\d+)/i);
+  return match ? match[1].toUpperCase() : num;
+};
+
 export default function ServiceOrders() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get("tab") || "mine";
@@ -181,7 +187,7 @@ export default function ServiceOrders() {
 
                     return (
                       <TableRow key={os.id} className="cursor-pointer hover:bg-accent/30 transition-colors" onClick={() => openDetail(os)}>
-                        <TableCell className="font-mono text-xs font-medium">{os.number}</TableCell>
+                        <TableCell className="font-mono text-xs font-medium">{cleanOSNumber(os.number)}</TableCell>
                         <TableCell className="text-sm">{project ? `${getProjectCode(project.id)} - ${project.name}` : ""}</TableCell>
                         <TableCell className="text-sm font-medium max-w-[200px] truncate">{os.title}</TableCell>
                         <TableCell><OSPriorityBadge priority={os.priority} /></TableCell>

@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -134,9 +134,11 @@ export function CreateOSModal({ open, onClose }: Props) {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
       <DialogContent className="max-w-lg">
+        <DialogTitle className="sr-only">Nova Ordem de Serviço</DialogTitle>
+        <DialogDescription className="sr-only">Formulário para criar uma nova ordem de serviço no sistema</DialogDescription>
         <div className="flex flex-col max-h-[80vh]">
           <DialogHeader>
-            <DialogTitle>Nova Ordem de Serviço</DialogTitle>
+            <h2 className="text-lg font-semibold leading-none tracking-tight">Nova Ordem de Serviço</h2>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto p-1" onPaste={handlePaste}>
             <div className="space-y-4">

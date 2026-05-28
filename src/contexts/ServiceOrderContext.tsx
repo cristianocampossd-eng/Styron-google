@@ -195,13 +195,21 @@ interface ServiceOrderContextType {
   archiveOrder: (osId: string) => void;
   requestMoreTime: (osId: string, newDate: Date, justification: string) => void;
   respondTimeRequest: (osId: string, status: "approved" | "rejected", modifiedDate?: Date) => void;
+  updateOrder: (osId: string, data: {
+    projectId: string;
+    responsible: string;
+    priority: OSPriority;
+    title: string;
+    description: string;
+    dueDate?: Date;
+  }) => Promise<void>;
 }
 
 const ServiceOrderContext = createContext<ServiceOrderContextType | null>(null);
 
 export function ServiceOrderProvider({ children }: { children: ReactNode }) {
   const { user, profile } = useAuth();
-  const { profiles, useLocalFallback } = useApp();
+  const { projects, profiles, useLocalFallback } = useApp();
   const [orders, setOrders] = useState<ServiceOrder[]>([]);
   const [notifications, setNotifications] = useState<OSNotification[]>([]);
   const currentUser = profile?.name || user?.email || CURRENT_USER_FALLBACK;
@@ -1080,13 +1088,142 @@ export function ServiceOrderProvider({ children }: { children: ReactNode }) {
     toast.success("Link adicionado com sucesso!");
   }, [orders, currentUserId, useLocalFallback, currentUser, loadOrders]);
 
+  const updateOrder = useCallback(async (osId: string, data: {
+    projectId: string;
+    responsible: string;
+    priority: OSPriority;
+    title: string;
+    description: string;
+    dueDate?: Date;
+  }) => {
+    const os = orders.find((o) => o.id === osId);
+    if (!os) {
+      toast.error("Ordem de Serviço não encontrada.");
+      return;
+    }
+
+    const changes: string[] = [];
+
+    if (data.title !== os.title) {
+      changes.push(`Título: de "${os.title}" para "${data.title}"`);
+    }
+
+    if (data.projectId !== os.projectId) {
+      const oldProj = projects.find((p) => p.id === os.projectId)?.name || os.projectId;
+      const newProj = projects.find((p) => p.id === data.projectId)?.name || data.projectId;
+      changes.push(`Projeto: de "${oldProj}" para "${newProj}"`);
+    }
+
+    if (data.responsible !== os.responsible) {
+      const oldResp = getProfileName(os.responsible);
+      const newResp = getProfileName(data.responsible);
+      changes.push(`Responsável: de "${oldResp}" para "${newResp}"`);
+    }
+
+    if (data.priority !== os.priority) {
+      const oldPriorityLabel = osPriorityLabels[os.priority] || os.priority;
+      const newPriorityLabel = osPriorityLabels[data.priority] || data.priority;
+      changes.push(`Prioridade: de "${oldPriorityLabel}" para "${newPriorityLabel}"`);
+    }
+
+    if (data.description !== os.description) {
+      changes.push(`Descrição/Observação editada`);
+    }
+
+    const oldDueStr = os.dueDate ? format(os.dueDate, "dd/MM/yyyy") : "Sem prazo";
+    const newDueStr = data.dueDate ? format(data.dueDate, "dd/MM/yyyy") : "Sem prazo";
+    if (oldDueStr !== newDueStr) {
+      changes.push(`Prazo de entrega: de "${oldDueStr}" para "${newDueStr}"`);
+    }
+
+    if (changes.length === 0) {
+      toast.info("Nenhuma alteração detectada.");
+      return;
+    }
+
+    const updatedTimelineEntry = {
+      id: crypto.randomUUID(),
+      action: "Ordem de Serviço editada",
+      user: currentUser,
+      date: new Date(),
+      details: changes.join("\n"),
+    };
+
+    const newTimeline = [...os.timeline, updatedTimelineEntry];
+
+    if (useLocalFallback) {
+      setOrders((prev) =>
+        prev.map((o) => {
+          if (o.id !== osId) return o;
+          return {
+            ...o,
+            title: data.title,
+            projectId: data.projectId,
+            responsible: data.responsible,
+            priority: data.priority,
+            description: data.description,
+            dueDate: data.dueDate,
+            updatedAt: new Date(),
+            timeline: newTimeline,
+          };
+        })
+      );
+      toast.success("Ordem de Serviço editada localmente!");
+      return;
+    }
+
+    try {
+      const obsPayload = stringifyObservation(
+        data.description,
+        data.dueDate,
+        os.deadlineExtensionRequest,
+        os.comments,
+        newTimeline
+      );
+
+      const { error: dbError } = await supabase
+        .from("service_orders")
+        .update({
+          title: data.title,
+          project_id: data.projectId,
+          assigned_to: data.responsible,
+          priority: data.priority,
+          observation: obsPayload,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", osId);
+
+      if (dbError) {
+        console.error("Erro ao atualizar OS no Supabase:", dbError);
+        toast.error(`Erro ao atualizar OS no banco: ${dbError.message}`);
+        return;
+      }
+
+      if (data.responsible !== os.responsible) {
+        await supabase.from("notifications").insert({
+          user_id: data.responsible,
+          type: "os",
+          title: "OS reatribuída",
+          message: `A OS "${data.title}" foi reatribuída a você.`,
+          link: osId,
+        });
+      }
+
+      await loadOrders();
+      toast.success("Ordem de Serviço atualizada com sucesso!");
+    } catch (err: any) {
+      console.error("Erro geral no updateOrder:", err);
+      toast.error(`Ocorreu um erro: ${err.message || err}`);
+    }
+  }, [orders, currentUser, projects, useLocalFallback, loadOrders, getProfileName]);
+
   const archiveOrder = useCallback((osId: string) => {
     updateStatus(osId, "archived");
   }, [updateStatus]);
 
   return (
     <ServiceOrderContext.Provider
-      value={{ orders, notifications, currentUser, createOrder, updateStatus, reassign, addComment, editComment, addAttachment, deleteAttachment, addExternalLink, markNotificationRead, markAllNotificationsRead, archiveOrder, requestMoreTime, respondTimeRequest }}
+      value={{ orders, notifications, currentUser, createOrder, updateStatus, reassign, addComment, editComment, addAttachment, deleteAttachment, addExternalLink, markNotificationRead, markAllNotificationsRead, archiveOrder, requestMoreTime, respondTimeRequest, updateOrder }}
     >
       {children}
     </ServiceOrderContext.Provider>

@@ -1,6 +1,6 @@
 import { format, isPast, isToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { X, UserCircle, Calendar, FolderKanban, RefreshCw, AlertTriangle, Clock, Upload, Download, Link2, Plus, ExternalLink, Image as ImageIcon, Video, FileText, Eye } from "lucide-react";
+import { X, UserCircle, Calendar, FolderKanban, RefreshCw, AlertTriangle, Clock, Upload, Download, Link2, Plus, ExternalLink, Image as ImageIcon, Video, FileText, Eye, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,6 +15,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { useState, useRef } from "react";
 import { ImagePreviewModal } from "./ImagePreviewModal";
+import { EditOSModal } from "./EditOSModal";
+
+const cleanOSNumber = (num: string) => {
+  if (!num) return "";
+  const match = num.match(/(OS[-_]?\d+)/i);
+  return match ? match[1].toUpperCase() : num;
+};
 
 interface Props {
   order: ServiceOrder | null;
@@ -31,6 +38,7 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const handlePaste = async (e: React.ClipboardEvent) => {
     const items = e.clipboardData.items;
@@ -141,7 +149,12 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
       <SheetContent className="w-full sm:max-w-lg overflow-y-auto" onPaste={handlePaste}>
         <SheetHeader className="pb-4 border-b">
           <div className="flex items-center justify-between">
-            <SheetTitle className="text-lg">{order.number}</SheetTitle>
+            <SheetTitle className="text-lg">{cleanOSNumber(order.number)}</SheetTitle>
+            {isCreator && (
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 border-primary/20 hover:border-primary/50 text-xs shrink-0" onClick={() => setIsEditing(true)}>
+                <Pencil className="w-3.5 h-3.5" /> Editar OS
+              </Button>
+            )}
           </div>
           <p className="text-base font-medium mt-1">{order.title}</p>
           <div className="flex gap-2 mt-2">
@@ -407,6 +420,7 @@ export function OSDetailDrawer({ order, open, onClose }: Props) {
           </Tabs>
         </div>
       </SheetContent>
+      <EditOSModal order={order} open={isEditing} onClose={() => setIsEditing(false)} />
     </Sheet>
   );
 }

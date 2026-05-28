@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   ArrowUpRight,
   ArrowDownRight,
@@ -24,13 +25,43 @@ export default function FinancialOverview() {
 
   const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 
-  const chartData = [
-    { mes: "Jan", receita: 28000, despesa: 18000 },
-    { mes: "Fev", receita: 32000, despesa: 22000 },
-    { mes: "Mar", receita: 35000, despesa: 19000 },
-    { mes: "Abr", receita: 40000, despesa: 25000 },
-    { mes: "Mai", receita: totalIncome, despesa: totalExpense },
-  ];
+  const chartData = useMemo(() => {
+    const portugueseMonths = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    
+    // We construct the last 5 months
+    const today = new Date();
+    const list = [];
+    
+    for (let i = 4; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const monthIndex = d.getMonth();
+      const label = portugueseMonths[monthIndex];
+      list.push({
+        mes: label,
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        receita: 0,
+        despesa: 0,
+      });
+    }
+
+    transactions.forEach((t) => {
+      const tDate = new Date(t.date);
+      const tYear = tDate.getFullYear();
+      const tMonth = tDate.getMonth();
+      
+      const found = list.find((m) => m.year === tYear && m.month === tMonth);
+      if (found) {
+        if (t.type === "income") {
+          found.receita += t.value;
+        } else if (t.type === "expense") {
+          found.despesa += t.value;
+        }
+      }
+    });
+
+    return list.map(({ mes, receita, despesa }) => ({ mes, receita, despesa }));
+  }, [transactions]);
 
   return (
     <div className="space-y-6 animate-fade-in">
