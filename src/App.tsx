@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
@@ -32,8 +33,65 @@ import Systems from "./pages/Systems";
 import FinancialSystems from "./pages/financial/FinancialSystems";
 import { ServiceOrderProvider } from "./contexts/ServiceOrderContext";
 import { AppProvider } from "./contexts/AppContext";
+import { supabase } from "@/integrations/supabase/client";
 
 const queryClient = new QueryClient();
+
+function CompanyBrandingSync() {
+  useEffect(() => {
+    supabase
+      .from("company_settings")
+      .select("name, logo_url")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          updateBranding(data.name, data.logo_url);
+        }
+      })
+      .catch((err) => {
+        console.error("Erro ao carregar configurações da empresa para branding:", err);
+      });
+
+    const ch = supabase
+      .channel("company-settings-branding-rt")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "company_settings" },
+        (payload: any) => {
+          if (payload.new) {
+            updateBranding(payload.new.name, payload.new.logo_url);
+          }
+        }
+      )
+      .subscribe();
+
+    function updateBranding(name?: string, logoUrl?: string | null) {
+      if (name) {
+        document.title = name;
+      }
+      if (logoUrl) {
+        let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+        if (!link) {
+          link = document.createElement("link");
+          link.rel = "shortcut icon";
+          document.head.appendChild(link);
+        }
+        link.href = logoUrl;
+
+        let appleLink = document.querySelector("link[rel~='apple-touch-icon']") as HTMLLinkElement;
+        if (appleLink) {
+          appleLink.href = logoUrl;
+        }
+      }
+    }
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, []);
+
+  return null;
+}
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -51,6 +109,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
+      <CompanyBrandingSync />
       <AuthProvider>
         <BrowserRouter>
           <Routes>
