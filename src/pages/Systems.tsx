@@ -351,8 +351,8 @@ export default function Systems() {
                   type="number"
                   step="0.01"
                   placeholder="0,00"
-                  value={initialBalance || ""}
-                  onChange={(e) => setInitialBalance(Number(e.target.value))}
+                  value={initialBalance}
+                  onChange={(e) => setInitialBalance(parseFloat(e.target.value) || 0)}
                   className="pl-8"
                   required
                 />
