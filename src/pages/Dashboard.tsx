@@ -65,7 +65,7 @@ export default function Dashboard() {
   const { user, profile, canAccess } = useAuth();
   const currentUserId = user?.id || "";
   
-  const { projects, transactions, accounts, receivables, categories } = useApp();
+  const { projects, transactions, accounts, receivables, categories, refreshProjects, refreshTransactions } = useApp();
   const { orders } = useServiceOrders();
 
   // Local state for dynamic filters & DB data
@@ -123,7 +123,7 @@ export default function Dashboard() {
   useEffect(() => {
     loadDbData();
 
-    // Auto update dashboard when underlying sales, products or systems mutate
+    // Auto update dashboard when underlying sales, products, systems, projects, or financial_transactions mutate
     const channel = supabase
       .channel("dashboard_db_changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "company_sales" }, () => {
@@ -135,12 +135,18 @@ export default function Dashboard() {
       .on("postgres_changes", { event: "*", schema: "public", table: "company_systems" }, () => {
         loadDbData();
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "projects" }, () => {
+        refreshProjects();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transactions" }, () => {
+        refreshTransactions();
+      })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [refreshProjects, refreshTransactions]);
 
   const handleRefresh = async () => {
     toast.promise(
@@ -175,12 +181,7 @@ export default function Dashboard() {
 
   // Filter systems list 
   const availableSystems = useMemo(() => {
-    return dbSystems.length > 0 ? dbSystems : [
-      { id: "1", name: "Me Agendae" },
-      { id: "2", name: "Sistema de Vendas" },
-      { id: "3", name: "App Mobile" },
-      { id: "4", name: "ERP Interno" }
-    ];
+    return dbSystems;
   }, [dbSystems]);
 
   // --- DYNAMIC FILTER ENGINE ---
@@ -320,20 +321,117 @@ export default function Dashboard() {
     return filteredOrders.filter((o) => o.status !== "completed" && o.status !== "archived").length;
   }, [filteredOrders]);
 
-  // --- STATS GRAPH 1: Receitas vs Despesas (Last 6 Months) ---
-  const revenuesVsExpensesData = useMemo(() => {
-    const monthsData: { [key: string]: { name: string; Receitas: number; Despesas: number; sortKey: number } } = {};
-    
-    // Initialize last 6 months
-    const today = new Date();
-    for (let i = 5; i >= 0; i--) {
-      const d = subDays(today, i * 30);
-      const monthName = format(d, "MMM/yy");
-      const sortKey = d.getFullYear() * 12 + d.getMonth();
-      monthsData[monthName] = { name: monthName, Receitas: 0, Despesas: 0, sortKey };
+  const previousPeriodKpis = useMemo(() => {
+    try {
+      if (selectedPeriod === "Total") return null;
+
+      const start = new Date(startDateStr + "T00:00:00");
+      const end = new Date(endDateStr + "T23:59:59.999");
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 30;
+
+      const prevStart = new Date(start.getTime() - diffDays * 24 * 60 * 60 * 1000);
+      const prevEnd = new Date(start.getTime() - 1);
+
+      // Filter transactions for that previous period
+      const prevTx = transactions.filter((t) => {
+        const d = new Date(t.date);
+        if (isNaN(d.getTime())) return false;
+        if (d < prevStart || d > prevEnd) return false;
+
+        if (projectFilter !== "all" && t.projectId !== projectFilter) return false;
+        if (systemFilter !== "all" && t.systemId !== systemFilter) return false;
+        return true;
+      });
+
+      const prevIncome = prevTx.filter((t) => t.type === "income").reduce((s, t) => s + t.value, 0);
+      const prevExpense = prevTx.filter((t) => t.type === "expense").reduce((s, t) => s + t.value, 0);
+      const prevNetProfit = prevIncome - prevExpense;
+
+      // Filter active service orders for previous period
+      const prevOrders = orders.filter((o) => {
+        if (projectFilter !== "all" && o.projectId !== projectFilter) return false;
+        const d = new Date(o.createdAt);
+        if (isNaN(d.getTime())) return false;
+        return d >= prevStart && d <= prevEnd;
+      }).filter((o) => o.status !== "completed" && o.status !== "archived").length;
+
+      // Filter active projects for previous period
+      const prevProjects = projects.filter((p) => {
+        if (projectFilter !== "all" && p.id !== projectFilter) return false;
+        const dStart = new Date(p.startDate);
+        if (!isNaN(dStart.getTime()) && dStart > prevEnd) return false;
+        if (p.status === "completed" && p.endDate) {
+          const dEnd = new Date(p.endDate);
+          if (!isNaN(dEnd.getTime()) && dEnd < prevStart) return false;
+        }
+        return p.status !== "archived";
+      }).length;
+
+      return {
+        income: prevIncome,
+        expense: prevExpense,
+        netProfit: prevNetProfit,
+        activeProjects: prevProjects,
+        osInProgress: prevOrders,
+      };
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
+  }, [transactions, projects, orders, startDateStr, endDateStr, selectedPeriod, projectFilter, systemFilter]);
+
+  const getTrendUI = (current: number, previous: number | undefined | null, isPercentage: boolean = true) => {
+    if (previous === undefined || previous === null || previous === 0) {
+      return {
+        text: "Sem comp.",
+        isUp: true,
+        isZero: true,
+      };
     }
 
-    // Aggregate real filtered transactions (ignoring date range as this is specifically showing last 6 months trend, but keeping project & system filters)
+    let diff = 0;
+    let text = "";
+    let isUp = true;
+
+    if (isPercentage) {
+      diff = ((current - previous) / previous) * 100;
+      isUp = diff >= 0;
+      text = `${isUp ? "+" : ""}${diff.toFixed(1)}%`;
+    } else {
+      diff = current - previous;
+      isUp = diff >= 0;
+      text = `${isUp ? "+" : ""}${diff}`;
+    }
+
+    return {
+      text,
+      isUp,
+      isZero: diff === 0,
+    };
+  };
+
+  // --- STATS GRAPH 1: Receitas vs Despesas (Last 6 Months) ---
+  const revenuesVsExpensesData = useMemo(() => {
+    const portugueseMonths = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const list: { name: string; year: number; month: number; Receitas: number; Despesas: number; sortKey: number }[] = [];
+
+    const today = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const label = `${portugueseMonths[d.getMonth()]}/${String(d.getFullYear()).slice(-2)}`;
+      list.push({
+        name: label,
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        Receitas: 0,
+        Despesas: 0,
+        sortKey: d.getFullYear() * 12 + d.getMonth(),
+      });
+    }
+
     const chartTx = transactions.filter((t) => {
       if (projectFilter !== "all" && t.projectId !== projectFilter) return false;
       if (systemFilter !== "all" && t.systemId !== systemFilter) return false;
@@ -341,32 +439,42 @@ export default function Dashboard() {
     });
 
     chartTx.forEach((t) => {
-      const monthName = format(new Date(t.date), "MMM/yy");
-      if (monthsData[monthName]) {
+      const tDate = new Date(t.date);
+      if (isNaN(tDate.getTime())) return;
+      const tYear = tDate.getFullYear();
+      const tMonth = tDate.getMonth();
+
+      const found = list.find((m) => m.year === tYear && m.month === tMonth);
+      if (found) {
         if (t.type === "income") {
-          monthsData[monthName].Receitas += t.value;
+          found.Receitas += t.value;
         } else if (t.type === "expense") {
-          monthsData[monthName].Despesas += t.value;
+          found.Despesas += t.value;
         }
       }
     });
 
-    return Object.values(monthsData).sort((a, b) => a.sortKey - b.sortKey);
+    return list.map(({ name, Receitas, Despesas }) => ({ name, Receitas, Despesas }));
   }, [transactions, projectFilter, systemFilter]);
 
   // --- STATS GRAPH 2: Fluxo de Caixa (Last 6 Months) ---
   const cashFlowData = useMemo(() => {
-    const monthsData: { [key: string]: { name: string; Saldo: number; sortKey: number } } = {};
-    
+    const portugueseMonths = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const list: { name: string; year: number; month: number; Saldo: number; sortKey: number }[] = [];
+
     const today = new Date();
     for (let i = 5; i >= 0; i--) {
-      const d = subDays(today, i * 30);
-      const monthName = format(d, "MMM/yy");
-      const sortKey = d.getFullYear() * 12 + d.getMonth();
-      monthsData[monthName] = { name: monthName, Saldo: 0, sortKey };
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const label = `${portugueseMonths[d.getMonth()]}/${String(d.getFullYear()).slice(-2)}`;
+      list.push({
+        name: label,
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        Saldo: 0,
+        sortKey: d.getFullYear() * 12 + d.getMonth(),
+      });
     }
 
-    // Filter transactions by projects and systems for chart trend
     const chartTx = transactions.filter((t) => {
       if (projectFilter !== "all" && t.projectId !== projectFilter) return false;
       if (systemFilter !== "all" && t.systemId !== systemFilter) return false;
@@ -374,17 +482,22 @@ export default function Dashboard() {
     });
 
     chartTx.forEach((t) => {
-      const monthName = format(new Date(t.date), "MMM/yy");
-      if (monthsData[monthName]) {
+      const tDate = new Date(t.date);
+      if (isNaN(tDate.getTime())) return;
+      const tYear = tDate.getFullYear();
+      const tMonth = tDate.getMonth();
+
+      const found = list.find((m) => m.year === tYear && m.month === tMonth);
+      if (found) {
         if (t.type === "income") {
-          monthsData[monthName].Saldo += t.value;
+          found.Saldo += t.value;
         } else if (t.type === "expense") {
-          monthsData[monthName].Saldo -= t.value;
+          found.Saldo -= t.value;
         }
       }
     });
 
-    return Object.values(monthsData).sort((a, b) => a.sortKey - b.sortKey);
+    return list.map(({ name, Saldo }) => ({ name, Saldo }));
   }, [transactions, projectFilter, systemFilter]);
 
   // --- SIDEBAR OS COUNTS ---
@@ -566,22 +679,64 @@ export default function Dashboard() {
     const systemSums: { [key: string]: { name: string; value: number } } = {};
     
     availableSystems.forEach((s) => {
-      systemSums[s.id] = { name: s.name, value: 0 };
+      if (systemFilter !== "all" && s.id !== systemFilter) return;
+      // Include initial balance
+      const initialBal = Number((s as any).initial_balance || 0);
+      systemSums[s.id] = { name: s.name, value: initialBal };
     });
 
+    // 1. Add transactions
     filteredTransactions.forEach((t) => {
       if (t.systemId && systemSums[t.systemId]) {
-        systemSums[t.systemId].value += t.value;
+        if (t.type === "income") {
+          systemSums[t.systemId].value += t.value;
+        } else if (t.type === "expense" || t.type === "withdrawal") {
+          systemSums[t.systemId].value -= t.value;
+        }
+      }
+    });
+
+    // 2. Add sales revenue (based on product mapping or direct mapping)
+    const productIdsBySystemId: { [sysId: string]: string[] } = {};
+    availableSystems.forEach((s) => {
+      productIdsBySystemId[s.id] = dbProducts.filter((p: any) => p.system_id === s.id).map((p: any) => p.id);
+    });
+
+    dbSales.forEach((sale: any) => {
+      // Stage check
+      const isClosedWon = sale.stage === "closed_won" || sale.stage === "Concluido" || sale.stage === "Faturado";
+      if (!isClosedWon) return;
+
+      // Date check
+      if (sale.created_at && !isWithinDateRange(sale.created_at)) return;
+
+      // Find system ID
+      let matchedSystemId = sale.system_id || null;
+      if (!matchedSystemId && sale.product_id) {
+        // Try to match via product_id
+        for (const sysId in productIdsBySystemId) {
+          if (productIdsBySystemId[sysId].includes(sale.product_id)) {
+            matchedSystemId = sysId;
+            break;
+          }
+        }
+      }
+
+      // Respect system filter
+      if (systemFilter !== "all" && matchedSystemId !== systemFilter) return;
+
+      if (matchedSystemId && systemSums[matchedSystemId]) {
+        systemSums[matchedSystemId].value += Number(sale.total_price || 0);
       }
     });
 
     const series = Object.values(systemSums).sort((a, b) => b.value - a.value);
-    const maxVal = Math.max(...series.map((s) => s.value), 1);
+    const maxVal = Math.max(...series.map((s) => Math.max(0, s.value)), 1);
 
     const colors = ["#3B82F6", "#F59E0B", "#A855F7", "#10B981", "#6B7280"];
 
     return series.map((s, idx) => {
-      const percentageOfMax = Math.round((s.value / maxVal) * 100);
+      const percentageOfMax = Math.round((Math.max(0, s.value) / maxVal) * 100);
       return {
         name: s.name,
         value: s.value,
@@ -589,31 +744,51 @@ export default function Dashboard() {
         widthClass: `w-[${percentageOfMax}%]`
       };
     });
-  }, [filteredTransactions, availableSystems]);
+  }, [filteredTransactions, availableSystems, dbProducts, dbSales, startDateStr, endDateStr, selectedPeriod, systemFilter]);
 
   // --- BARS 4: Financeiro por Projeto (Este mês) ---
   const financialByProjectData = useMemo(() => {
     const projSums: { [key: string]: { name: string; value: number } } = {};
 
+    // Initialize all active projects with value 0 so that they are listed immediately
+    projects.forEach((p) => {
+      if (p.name && p.status !== "completed" && p.status !== "archived") {
+        projSums[p.id] = { name: p.name, value: 0 };
+      }
+    });
+
     filteredTransactions.forEach((t) => {
       if (t.projectId) {
-        const projName = projects.find((p) => p.id === t.projectId)?.name || "Outros";
-        if (!projSums[projName]) {
-          projSums[projName] = { name: projName, value: 0 };
+        if (projSums[t.projectId]) {
+          if (t.type === "income") {
+            projSums[t.projectId].value += t.value;
+          } else if (t.type === "expense" || t.type === "withdrawal") {
+            projSums[t.projectId].value -= t.value;
+          }
+        } else {
+          // Fallback if project is archived or completed but has transactions in current period
+          const p = projects.find((x) => x.id === t.projectId);
+          const name = p?.name || "Outros";
+          let val = 0;
+          if (t.type === "income") {
+            val += t.value;
+          } else if (t.type === "expense" || t.type === "withdrawal") {
+            val -= t.value;
+          }
+          projSums[t.projectId] = { name, value: val };
         }
-        projSums[projName].value += t.value;
       }
     });
 
     const series = Object.values(projSums).sort((a, b) => b.value - a.value);
-    const totalSum = series.reduce((s, x) => s + x.value, 0);
-    const maxVal = Math.max(...series.map((p) => p.value), 1);
+    const totalSum = series.reduce((s, x) => s + Math.max(0, x.value), 0);
+    const maxVal = Math.max(...series.map((p) => Math.max(0, p.value)), 1);
 
     const colors = ["#3B82F6", "#6366F1", "#EAB308", "#10B981", "#9CA3AF"];
 
     const mapped = series.map((p, idx) => {
-      const percentage = totalSum > 0 ? Math.round((p.value / totalSum) * 100) : 0;
-      const percentageOfMax = Math.round((p.value / maxVal) * 100);
+      const percentage = totalSum > 0 ? Math.round((Math.max(0, p.value) / totalSum) * 100) : 0;
+      const percentageOfMax = Math.round((Math.max(0, p.value) / maxVal) * 100);
       return {
         name: p.name,
         value: p.value,
@@ -961,9 +1136,12 @@ export default function Dashboard() {
             </div>
             <div className="mt-3">
               <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{fmt(totalIncome)}</h4>
-              <div className="flex items-center gap-1 mt-1 text-xs text-emerald-600 font-bold">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>12,5%</span>
+              <div className={`flex items-center gap-1 mt-1 text-xs font-bold ${
+                !previousPeriodKpis ? "text-slate-400" :
+                (totalIncome >= (previousPeriodKpis?.income || 0)) ? "text-emerald-600" : "text-rose-600"
+              }`}>
+                {previousPeriodKpis && (totalIncome >= (previousPeriodKpis?.income || 0) ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />)}
+                <span>{!previousPeriodKpis ? "Sem dados comp." : getTrendUI(totalIncome, previousPeriodKpis.income).text}</span>
                 <span className="text-slate-400 font-medium">vs período anterior</span>
               </div>
             </div>
@@ -985,9 +1163,12 @@ export default function Dashboard() {
             </div>
             <div className="mt-3">
               <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{fmt(totalExpense)}</h4>
-              <div className="flex items-center gap-1 mt-1 text-xs text-rose-600 font-bold">
-                <TrendingDown className="w-3.5 h-3.5" />
-                <span>4,3%</span>
+              <div className={`flex items-center gap-1 mt-1 text-xs font-bold ${
+                !previousPeriodKpis ? "text-slate-400" :
+                (totalExpense <= (previousPeriodKpis?.expense || 0)) ? "text-emerald-600" : "text-rose-600"
+              }`}>
+                {previousPeriodKpis && (totalExpense <= (previousPeriodKpis?.expense || 0) ? <TrendingDown className="w-3.5 h-3.5" /> : <TrendingUp className="w-3.5 h-3.5" />)}
+                <span>{!previousPeriodKpis ? "Sem dados comp." : getTrendUI(totalExpense, previousPeriodKpis.expense).text}</span>
                 <span className="text-slate-400 font-medium">vs período anterior</span>
               </div>
             </div>
@@ -1009,9 +1190,12 @@ export default function Dashboard() {
             </div>
             <div className="mt-3">
               <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{fmt(netProfit)}</h4>
-              <div className="flex items-center gap-1 mt-1 text-xs text-blue-600 font-bold">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>28,6%</span>
+              <div className={`flex items-center gap-1 mt-1 text-xs font-bold ${
+                !previousPeriodKpis ? "text-slate-400" :
+                (netProfit >= (previousPeriodKpis?.netProfit || 0)) ? "text-emerald-600" : "text-rose-600"
+              }`}>
+                {previousPeriodKpis && (netProfit >= (previousPeriodKpis?.netProfit || 0) ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />)}
+                <span>{!previousPeriodKpis ? "Sem dados comp." : getTrendUI(netProfit, previousPeriodKpis.netProfit).text}</span>
                 <span className="text-slate-400 font-medium">vs período anterior</span>
               </div>
             </div>
@@ -1033,9 +1217,12 @@ export default function Dashboard() {
             </div>
             <div className="mt-3">
               <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{activeProjectsCount}</h4>
-              <div className="flex items-center gap-1 mt-1 text-xs text-purple-600 font-bold">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>+3</span>
+              <div className={`flex items-center gap-1 mt-1 text-xs font-bold ${
+                !previousPeriodKpis ? "text-slate-400" :
+                (activeProjectsCount >= (previousPeriodKpis?.activeProjects || 0)) ? "text-emerald-600" : "text-rose-600"
+              }`}>
+                {previousPeriodKpis && (activeProjectsCount >= (previousPeriodKpis?.activeProjects || 0) ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />)}
+                <span>{!previousPeriodKpis ? "Sem dados comp." : getTrendUI(activeProjectsCount, previousPeriodKpis.activeProjects, false).text}</span>
                 <span className="text-slate-400 font-medium">vs período anterior</span>
               </div>
             </div>
@@ -1057,9 +1244,12 @@ export default function Dashboard() {
             </div>
             <div className="mt-3">
               <h4 className="text-2xl font-extrabold text-slate-900 tracking-tight">{osInProgressCount}</h4>
-              <div className="flex items-center gap-1 mt-1 text-xs text-amber-500 font-bold">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>+1</span>
+              <div className={`flex items-center gap-1 mt-1 text-xs font-bold ${
+                !previousPeriodKpis ? "text-slate-400" :
+                (osInProgressCount >= (previousPeriodKpis?.osInProgress || 0)) ? "text-emerald-600" : "text-rose-600"
+              }`}>
+                {previousPeriodKpis && (osInProgressCount >= (previousPeriodKpis?.osInProgress || 0) ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />)}
+                <span>{!previousPeriodKpis ? "Sem dados comp." : getTrendUI(osInProgressCount, previousPeriodKpis.osInProgress, false).text}</span>
                 <span className="text-slate-400 font-medium">vs período anterior</span>
               </div>
             </div>
@@ -1755,7 +1945,7 @@ export default function Dashboard() {
                   <span>Menos Vendido</span>
                 </div>
                 <div className="text-right">
-                  <span className="font-extrabold text-slate-800 block">Integração API</span>
+                  <span className="font-extrabold text-slate-800 block">{productsSummary.worst}</span>
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-semibold block">{productsSummary.worstCount} venda</span>
                 </div>
               </div>
