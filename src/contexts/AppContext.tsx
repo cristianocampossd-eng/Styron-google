@@ -24,11 +24,13 @@ export interface ReceivablePayable {
   description: string;
   type: "income" | "expense";
   status: "pending" | "paid" | "overdue";
+  isRecurring: boolean;
   recurrence: "once" | "monthly" | "weekly" | "yearly";
   value: number;
   projectId: string | null;
   categoryId: string;
   accountId: string;
+  systemId?: string | null;
 }
 
 export interface TaskMessage {
@@ -78,7 +80,8 @@ interface AppContextType {
   deleteTransaction: (id: string) => Promise<void>;
   updateAccountBalance: (accountId: string, delta: number) => Promise<void>;
   addReceivable: (r: Omit<ReceivablePayable, "id">) => Promise<void>;
-  payReceivable: (id: string, paymentData: { discount: number; interest: number; accountId: string; categoryId: string; projectId: string | null }) => Promise<void>;
+  updateReceivable: (id: string, data: Partial<ReceivablePayable>) => Promise<void>;
+  payReceivable: (id: string, paymentData: { discount: number; interest: number; accountId: string; categoryId: string; projectId: string | null; systemId: string | null }) => Promise<void>;
   addTaskMessage: (msg: { taskId: string; author: string; text: string }) => Promise<void>;
   addNotification: (n: { type: string; title: string; description: string; userId: string; link?: string }) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
@@ -89,6 +92,7 @@ interface AppContextType {
   addCategory: (name: string, type: "income" | "expense") => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   deleteReceivable: (id: string) => Promise<void>;
+  revertReceivable: (id: string) => Promise<void>;
   useLocalFallback: boolean;
 }
 
@@ -451,8 +455,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
           }
           
-          // Strip the metadata tag from the displayed description
-          const cleanDesc = desc.replace(/\s*\[sys:[^\]]+\]/, "");
+          const refMatch = desc.match(/\[ref:([^:\s\]]+)\]/);
+          const receivableId = refMatch ? refMatch[1] : null;
+
+          // Strip metadata tags from the displayed description
+          const cleanDesc = desc.replace(/\s*\[sys:[^\]]+\]/, "").replace(/\s*\[ref:[^\]]+\]/, "");
 
           return {
             id: t.id,
@@ -463,6 +470,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             value: Number(t.value),
             date: new Date(t.transaction_date),
             description: cleanDesc,
+            rawDescription: desc,
+            receivableId,
             systemId,
             affectsSystemBalance,
           };
@@ -488,23 +497,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   async function loadReceivables() {
-    const { data } = await supabase.from("financial_entries").select("*").order("created_at", { ascending: false });
+    const { data } = await supabase.from("financial_entries").select("*");
     if (data) {
-      setReceivables(
-        data.map((r: any) => ({
+      const mapped = data.map((r: any) => {
+        let parsedDueDate = new Date();
+        if (r.due_date) {
+          const parts = r.due_date.split('-');
+          if (parts.length === 3) {
+            parsedDueDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          } else {
+            parsedDueDate = new Date(r.due_date);
+          }
+        } else if (r.created_at) {
+          parsedDueDate = new Date(r.created_at);
+        }
+        return {
           id: r.id,
           date: new Date(r.created_at),
-          dueDate: new Date(r.due_date || r.created_at),
+          dueDate: parsedDueDate,
           description: r.description,
           type: r.type as any,
           status: r.status as any,
+          isRecurring: !!r.is_recurring || (r.recurrence && r.recurrence !== "once"),
           recurrence: (r.recurrence || "once") as any,
           value: Number(r.value),
           projectId: r.project_id,
           categoryId: r.category_id || "",
-          accountId: "",
-        }))
-      );
+          accountId: r.account_id || "",
+        };
+      });
+
+      // Ordenar por data de vencimento (dueDate) ascendente (vencimentos mais próximos/antigos primeiro)
+      mapped.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
+
+      setReceivables(mapped);
     }
   }
 
@@ -1104,7 +1130,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       type: t.type,
       project_id: t.projectId || null,
       account_id: t.accountId || null,
-      category_id: t.category_id || null,
+      category_id: t.categoryId || null,
       value: t.value,
       description: finalDescription,
       transaction_date: t.date.toISOString(),
@@ -1116,7 +1142,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     let { error } = await supabase.from("financial_transactions").insert(txPayload);
     if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
-      const { system_id, affects_system_balance, ...cleanPayload } = txPayload;
+      const { system_id, affects_system_balance, due_date, ...cleanPayload } = txPayload;
       const retryRes = await supabase.from("financial_transactions").insert(cleanPayload);
       error = retryRes.error;
     }
@@ -1133,7 +1159,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       affects_system_balance: t.affectsSystemBalance ?? false,
     });
     void dummyObj;
-    if (error) { console.error("Erro ao registrar no Supabase:", error); toast.error(`Erro ao registrar movimentação: ${error.message}`); return; }
+    if (error) { 
+      console.error("Erro ao registrar no Supabase:", error); 
+      throw new Error(`Erro ao registrar movimentação: ${error.message}`); 
+    }
     await loadTransactions();
   }, [user, useLocalFallback]);
 
@@ -1171,7 +1200,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     let { error } = await supabase.from("financial_transactions").update(txPayload).eq("id", id);
     if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
-      const { system_id, affects_system_balance, ...cleanPayload } = txPayload;
+      const { system_id, affects_system_balance, due_date, ...cleanPayload } = txPayload;
       const retryRes = await supabase.from("financial_transactions").update(cleanPayload).eq("id", id);
       error = retryRes.error;
     }
@@ -1227,27 +1256,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
         description: r.description,
         type: r.type,
         status: r.status || "pending",
+        isRecurring: r.isRecurring,
         recurrence: r.recurrence || "once",
         value: r.value,
         projectId: r.projectId || null,
         categoryId: r.categoryId || "",
-        accountId: ""
+        accountId: r.accountId || ""
       };
       setReceivables((prev) => [newRec, ...prev]);
       toast.success(r.type === "income" ? "Receita registrada!" : "Despesa registrada!");
       return;
     }
 
-    const { error } = await supabase.from("financial_entries").insert({
+    const yr = r.dueDate.getFullYear();
+    const mo = String(r.dueDate.getMonth() + 1).padStart(2, "0");
+    const dy = String(r.dueDate.getDate()).padStart(2, "0");
+    const formattedDueDate = `${yr}-${mo}-${dy}`;
+
+    const payload: any = {
       type: r.type,
       description: r.description,
       recurrence: r.recurrence,
       status: r.status || "pending",
-      due_date: r.dueDate.toISOString().split("T")[0],
+      due_date: formattedDueDate,
       value: r.value,
       project_id: r.projectId || null,
       category_id: r.categoryId || null,
-    });
+      account_id: r.accountId || null,
+    };
+
+    let { error } = await supabase.from("financial_entries").insert(payload);
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      const { account_id, ...cleanPayload } = payload;
+      const retryRes = await supabase.from("financial_entries").insert(cleanPayload);
+      error = retryRes.error;
+    }
+
     if (error) { 
       console.error("Firebase/Supabase error:", error);
       toast.error("Erro ao registrar: " + error.message); 
@@ -1257,7 +1301,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await loadReceivables();
   }, [useLocalFallback]);
 
-  const payReceivable = useCallback(async (id: string, paymentData: { discount: number; interest: number; accountId: string; categoryId: string; projectId: string | null }) => {
+  const updateReceivable = useCallback(async (id: string, data: Partial<ReceivablePayable>) => {
+    if (useLocalFallback) {
+      setReceivables((prev) => prev.map((r) => r.id === id ? { ...r, ...data } : r));
+      toast.success("Atualizado!");
+      return;
+    }
+    const updates: any = {};
+    if (data.recurrence !== undefined) updates.recurrence = data.recurrence;
+    if (data.dueDate !== undefined) {
+      const yr = data.dueDate.getFullYear();
+      const mo = String(data.dueDate.getMonth() + 1).padStart(2, "0");
+      const dy = String(data.dueDate.getDate()).padStart(2, "0");
+      updates.due_date = `${yr}-${mo}-${dy}`;
+    }
+    if (data.description !== undefined) updates.description = data.description;
+    if (data.value !== undefined) updates.value = data.value;
+    if (data.projectId !== undefined) updates.project_id = data.projectId;
+    if (data.categoryId !== undefined) updates.category_id = data.categoryId || null;
+    if (data.accountId !== undefined) updates.account_id = data.accountId || null;
+    if (data.status !== undefined) updates.status = data.status;
+    
+    let { error } = await supabase.from("financial_entries").update(updates).eq("id", id);
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      const { account_id, ...cleanUpdates } = updates;
+      const retryRes = await supabase.from("financial_entries").update(cleanUpdates).eq("id", id);
+      error = retryRes.error;
+    }
+
+    if (error) { toast.error("Erro ao atualizar: " + error.message); return; }
+    await loadReceivables();
+    toast.success("Atualizado!");
+  }, [useLocalFallback]);
+
+  const payReceivable = useCallback(async (id: string, paymentData: { discount: number; interest: number; accountId: string; categoryId: string; projectId: string | null; systemId: string | null }) => {
     if (useLocalFallback) {
       const item = receivables.find((r) => r.id === id);
       if (!item) return;
@@ -1271,7 +1348,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         categoryId: paymentData.categoryId,
         value: finalValue,
         date: new Date(),
-        description: item.description
+        description: `${item.description || ""} [ref:${id}]`,
+        systemId: paymentData.systemId
       };
       setTransactions((prev) => [newTx, ...prev]);
 
@@ -1287,23 +1365,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!item) return;
     const finalValue = item.value - paymentData.discount + paymentData.interest;
 
-    await addTransaction({
-      type: item.type === "income" ? "income" : "expense",
-      projectId: paymentData.projectId,
-      accountId: paymentData.accountId,
-      categoryId: paymentData.categoryId,
-      value: finalValue,
-      date: new Date(),
-      description: item.description,
-    });
+    try {
+      await addTransaction({
+        type: item.type === "income" ? "income" : "expense",
+        projectId: paymentData.projectId,
+        accountId: paymentData.accountId,
+        categoryId: paymentData.categoryId,
+        systemId: paymentData.systemId,
+        value: finalValue,
+        date: new Date(),
+        description: `${item.description || ""} [ref:${id}]`,
+      });
 
-    await updateAccountBalance(paymentData.accountId, item.type === "income" ? finalValue : -finalValue);
+      if (item.isRecurring) {
+          // Create new item
+          const nextDueDate = new Date(item.dueDate);
+          if (item.recurrence === "daily") nextDueDate.setDate(nextDueDate.getDate() + 1);
+          else if (item.recurrence === "weekly") nextDueDate.setDate(nextDueDate.getDate() + 7);
+          else if (item.recurrence === "monthly") nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+          else if (item.recurrence === "yearly") nextDueDate.setFullYear(nextDueDate.getFullYear() + 1);
+          
+          await addReceivable({
+              date: new Date(),
+              dueDate: nextDueDate,
+              description: item.description,
+              type: item.type,
+              status: "pending",
+              isRecurring: true,
+              recurrence: item.recurrence,
+              value: item.value,
+              projectId: item.projectId,
+              categoryId: item.categoryId,
+              accountId: item.accountId,
+              systemId: item.systemId,
+          });
+      }
 
-    const { error } = await supabase.from("financial_entries").update({ status: "paid" }).eq("id", id);
-    if (error) { toast.error("Erro ao atualizar status"); return; }
-    toast.success(item.type === "income" ? "Recebimento confirmado!" : "Pagamento confirmado!");
-    await loadReceivables();
-  }, [receivables, addTransaction, updateAccountBalance, useLocalFallback]);
+      await updateAccountBalance(paymentData.accountId, item.type === "income" ? finalValue : -finalValue);
+
+      const { error } = await supabase.from("financial_entries").update({ status: "paid" }).eq("id", id);
+      if (error) { toast.error("Erro ao atualizar status"); return; }
+      toast.success(item.type === "income" ? "Recebimento confirmado!" : "Pagamento confirmado!");
+      await loadReceivables();
+    } catch (err: any) {
+      console.error("Erro na liquidação de lançamento:", err);
+      toast.error(err.message || "Erro ao efetuar o pagamento/recebimento.");
+    }
+  }, [receivables, addTransaction, addReceivable, updateAccountBalance, useLocalFallback]);
 
   const addTaskMessage = useCallback(async (msg: { taskId: string; author: string; text: string }) => {
     if (useLocalFallback) {
@@ -1413,13 +1521,187 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await loadReceivables();
   }, [useLocalFallback]);
 
+  const revertReceivable = useCallback(async (id: string) => {
+    const item = receivables.find((r) => r.id === id);
+    if (!item) {
+      toast.error("Lançamento não encontrado.");
+      return;
+    }
+
+    if (item.status !== "paid") {
+      toast.error("Este lançamento não está pago.");
+      return;
+    }
+
+    const normalize = (str: string) => (str || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    
+    const targetDesc = normalize(item.description);
+    const targetType = item.type === "income" ? "income" : "expense";
+    const targetValue = item.value;
+
+    // --- STRATEGIC MATCH MECHANISM ---
+    
+    // Strategy 1: Find by exact [ref:ID] identifier
+    let matchingTx = transactions.find((t) => {
+      return t.receivableId === id || (t.rawDescription && t.rawDescription.includes(`[ref:${id}]`));
+    });
+
+    // Strategy 2: Exact description and close value
+    if (!matchingTx) {
+      matchingTx = transactions.find((t) => {
+        if (t.type !== targetType) return false;
+        const tDesc = normalize(t.description);
+        const descMatches = tDesc === targetDesc;
+        const valueMatches = Math.abs(t.value - targetValue) < 0.05;
+        return descMatches && valueMatches;
+      });
+    }
+
+    // Strategy 3: Substring description match and close value
+    if (!matchingTx) {
+      matchingTx = transactions.find((t) => {
+        if (t.type !== targetType) return false;
+        const tDesc = normalize(t.description);
+        const descMatches = tDesc.includes(targetDesc) || targetDesc.includes(tDesc);
+        const valueMatches = Math.abs(t.value - targetValue) < 0.05;
+        return descMatches && valueMatches;
+      });
+    }
+
+    // Strategy 4: Exact description regardless of value (for interest/discount)
+    if (!matchingTx) {
+      matchingTx = transactions.find((t) => {
+        if (t.type !== targetType) return false;
+        const tDesc = normalize(t.description);
+        return tDesc === targetDesc;
+      });
+    }
+
+    // Strategy 5: Substring description match regardless of value (relaxed matching)
+    if (!matchingTx) {
+      matchingTx = transactions.find((t) => {
+        if (t.type !== targetType) return false;
+        const tDesc = normalize(t.description);
+        return tDesc.includes(targetDesc) || targetDesc.includes(tDesc);
+      });
+    }
+
+    // Strategy 6: Same value, close properties as a last resort
+    if (!matchingTx) {
+      matchingTx = transactions.find((t) => {
+        if (t.type !== targetType) return false;
+        return Math.abs(t.value - targetValue) < 0.05;
+      });
+    }
+
+    // Fallback search directly in Supabase using the same strategies directly
+    if (!useLocalFallback && !matchingTx) {
+      try {
+        const { data: directTxs } = await supabase
+          .from("financial_transactions")
+          .select("*")
+          .eq("type", targetType);
+          
+        if (directTxs && directTxs.length > 0) {
+          const mappedDirect = directTxs.map((found: any) => {
+            const rawDesc = found.description || "";
+            const cleanDesc = rawDesc.replace(/\s*\[sys:[^\]]+\]/, "").replace(/\s*\[ref:[^\]]+\]/, "");
+            const refMatch = rawDesc.match(/\[ref:([^:\s\]]+)\]/);
+            return {
+              id: found.id,
+              type: found.type as any,
+              projectId: found.project_id,
+              accountId: found.account_id || "",
+              categoryId: found.category_id || "",
+              value: Number(found.value),
+              date: new Date(found.transaction_date),
+              description: cleanDesc,
+              rawDescription: rawDesc,
+              receivableId: refMatch ? refMatch[1] : null,
+              systemId: found.system_id,
+              affectsSystemBalance: found.affects_system_balance
+            };
+          });
+
+          matchingTx = mappedDirect.find((t) => t.receivableId === id) ||
+                       mappedDirect.find((t) => (t.rawDescription && t.rawDescription.includes(`[ref:${id}]`))) ||
+                       mappedDirect.find((t) => normalize(t.description) === targetDesc && Math.abs(t.value - targetValue) < 0.05) ||
+                       mappedDirect.find((t) => (normalize(t.description).includes(targetDesc) || targetDesc.includes(normalize(t.description))) && Math.abs(t.value - targetValue) < 0.05) ||
+                       mappedDirect.find((t) => normalize(t.description) === targetDesc) ||
+                       mappedDirect.find((t) => normalize(t.description).includes(targetDesc) || targetDesc.includes(normalize(t.description))) ||
+                       mappedDirect.find((t) => Math.abs(t.value - targetValue) < 0.05);
+        }
+      } catch (err) {
+        console.error("Erro ao buscar transação diretamente no Supabase:", err);
+      }
+    }
+
+    if (useLocalFallback) {
+      if (matchingTx) {
+        const delta = matchingTx.type === "income" ? -matchingTx.value : matchingTx.value;
+        setAccounts((prev) => prev.map((a) => a.id === matchingTx.accountId ? { ...a, balance: a.balance + delta } : a));
+        setTransactions((prev) => prev.filter((t) => t.id !== matchingTx.id));
+      }
+      setReceivables((prev) => prev.map((r) => r.id === id ? { ...r, status: "pending" } : r));
+      toast.success("Estornado!");
+      return;
+    }
+
+    try {
+      if (matchingTx && matchingTx.accountId) {
+        const { data: dbAccount } = await supabase
+          .from("financial_accounts")
+          .select("balance")
+          .eq("id", matchingTx.accountId)
+          .single();
+          
+        if (dbAccount) {
+          const currentBalance = Number(dbAccount.balance);
+          const delta = matchingTx.type === "income" ? -matchingTx.value : matchingTx.value;
+          
+          const { error: accErr } = await supabase
+            .from("financial_accounts")
+            .update({ balance: currentBalance + delta })
+            .eq("id", matchingTx.accountId);
+            
+          if (accErr) {
+            console.error("Erro ao estornar saldo da conta:", accErr);
+            toast.error("Erro ao atualizar o saldo da conta.");
+            return;
+          }
+        }
+        
+        await supabase.from("financial_transactions").delete().eq("id", matchingTx.id);
+      }
+
+      const { error: entryErr } = await supabase.from("financial_entries").update({ status: "pending" }).eq("id", id);
+      if (entryErr) {
+         toast.error("Erro ao atualizar status do lançamento: " + entryErr.message);
+         return;
+      }
+
+      if (matchingTx) {
+        toast.success("Estorno efetuado com sucesso!");
+      } else {
+        toast.warning("Lançamento redefinido como Pendente, mas nenhuma movimentação financeira correspondente foi encontrada para estornar o saldo automaticamente.", { duration: 6000 });
+      }
+
+      await loadReceivables();
+      await loadTransactions();
+      await loadAccounts();
+    } catch (e: any) {
+      console.error("Erro no estorno:", e);
+      toast.error("Erro ao processar estorno: " + e.message);
+    }
+  }, [receivables, transactions, accounts, useLocalFallback]);
+
   return (
     <AppContext.Provider
       value={{
         projects, templates, transactions, accounts, receivables, categories, taskMessages, notifications, loading, profiles, setProfiles,
         addProject, updateProject, updateProjectInvestment, duplicateProject, saveProjectAsTemplate, archiveProject, updateTask, deleteTask, updateStage, deleteStage, addStage, addTask,
         addTransaction, updateTransaction, deleteTransaction, updateAccountBalance,
-        addReceivable, payReceivable, deleteReceivable,
+        addReceivable, updateReceivable, payReceivable, deleteReceivable, revertReceivable,
         addTaskMessage, addNotification, markNotificationRead, getProjectCode,
         refreshProjects, refreshTransactions, refreshAccounts, addCategory, deleteCategory,
         useLocalFallback,

@@ -72,6 +72,8 @@ export interface Transaction {
   description: string;
   systemId?: string | null;
   affectsSystemBalance?: boolean | null;
+  rawDescription?: string;
+  receivableId?: string | null;
 }
 
 export interface RecurringItem {

@@ -16,6 +16,7 @@ export default function FinancialAccounts() {
   const [selected, setSelected] = useState<string | null>(null);
   const { accounts, transactions, refreshAccounts } = useApp();
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [agency, setAgency] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
@@ -40,18 +41,23 @@ export default function FinancialAccounts() {
     await refreshAccounts();
   };
 
-  const deleteAccount = async (id: string, e: React.MouseEvent) => {
+  const deleteAccount = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Deseja realmente excluir esta conta?")) return;
-    const { error } = await supabase.from("financial_accounts").delete().eq("id", id);
+    setDeleteConfirmOpen(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmOpen) return;
+    const { error } = await supabase.from("financial_accounts").delete().eq("id", deleteConfirmOpen);
     if (error) {
       toast.error("Erro ao excluir conta: " + error.message);
       return;
     }
     toast.success("Conta excluída!");
-    if (selected === id) {
+    if (selected === deleteConfirmOpen) {
       setSelected(null);
     }
+    setDeleteConfirmOpen(null);
     await refreshAccounts();
   };
 
@@ -101,6 +107,24 @@ export default function FinancialAccounts() {
             )}
           </div>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        <Dialog open={!!deleteConfirmOpen} onOpenChange={() => setDeleteConfirmOpen(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Excluir Conta</DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-2">
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Deseja realmente excluir esta conta financeira? Esta ação é irreversível e removerá todos os registros associados.
+              </p>
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setDeleteConfirmOpen(null)}>Cancelar</Button>
+              <Button variant="destructive" onClick={confirmDelete}>Excluir</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -185,6 +209,24 @@ export default function FinancialAccounts() {
               <Button type="submit" disabled={saving}>{saving ? "Salvando..." : "Criar"}</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={!!deleteConfirmOpen} onOpenChange={() => setDeleteConfirmOpen(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Excluir Conta</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Deseja realmente excluir esta conta financeira? Esta ação é irreversível e removerá todos os registros associados.
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={confirmDelete}>Excluir</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
