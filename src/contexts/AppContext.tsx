@@ -497,40 +497,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   async function loadReceivables() {
-    const { data } = await supabase.from("financial_entries").select("*");
+    const { data } = await supabase.from("financial_entries").select("*").order("created_at", { ascending: false });
     if (data) {
-      const mapped = data.map((r: any) => {
-        let parsedDueDate = new Date();
-        if (r.due_date) {
-          const parts = r.due_date.split('-');
-          if (parts.length === 3) {
-            parsedDueDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-          } else {
-            parsedDueDate = new Date(r.due_date);
+      setReceivables(
+        data.map((r: any) => {
+          let parsedDueDate = new Date();
+          if (r.due_date) {
+            const parts = r.due_date.split('-');
+            if (parts.length === 3) {
+              parsedDueDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+            } else {
+              parsedDueDate = new Date(r.due_date);
+            }
+          } else if (r.created_at) {
+            parsedDueDate = new Date(r.created_at);
           }
-        } else if (r.created_at) {
-          parsedDueDate = new Date(r.created_at);
-        }
-        return {
-          id: r.id,
-          date: new Date(r.created_at),
-          dueDate: parsedDueDate,
-          description: r.description,
-          type: r.type as any,
-          status: r.status as any,
-          isRecurring: !!r.is_recurring || (r.recurrence && r.recurrence !== "once"),
-          recurrence: (r.recurrence || "once") as any,
-          value: Number(r.value),
-          projectId: r.project_id,
-          categoryId: r.category_id || "",
-          accountId: r.account_id || "",
-        };
-      });
-
-      // Ordenar por data de vencimento (dueDate) ascendente (vencimentos mais próximos/antigos primeiro)
-      mapped.sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
-
-      setReceivables(mapped);
+          return {
+            id: r.id,
+            date: new Date(r.created_at),
+            dueDate: parsedDueDate,
+            description: r.description,
+            type: r.type as any,
+            status: r.status as any,
+            isRecurring: !!r.is_recurring || (r.recurrence && r.recurrence !== "once"),
+            recurrence: (r.recurrence || "once") as any,
+            value: Number(r.value),
+            projectId: r.project_id,
+            categoryId: r.category_id || "",
+            accountId: r.account_id || "",
+          };
+        })
+      );
     }
   }
 
