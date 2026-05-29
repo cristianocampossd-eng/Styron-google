@@ -168,7 +168,10 @@ export default function FinancialAccounts() {
                   </Button>
                   )}
                 </div>
-                <p className="text-2xl font-bold mt-2 text-foreground">{fmt(acc.balance)}</p>
+                <p className={cn(
+                  "text-2xl font-bold mt-2",
+                  acc.balance < 0 ? "text-rose-600" : "text-foreground"
+                )}>{fmt(acc.balance)}</p>
                 {acc.id !== "total-balance-account" && (
                     <p className="text-[10px] text-muted-foreground/80 mt-1 font-mono">ID: {acc.id.substring(0, 8)}...</p>
                 )}

@@ -610,33 +610,47 @@ export default function Dashboard() {
 
   // --- SECONDARY SIDEBAR INFO: Recurrent transactions ---
   const recurringInfo = useMemo(() => {
-    const recurringIncomes = receivables.filter((r) => r.type === "income" && r.recurrence !== "once");
-    const incomeSum = recurringIncomes.reduce((s, r) => {
-      let monthlyVal = r.value;
-      if (r.recurrence === "weekly") {
-        monthlyVal = r.value * 4.33;
-      } else if (r.recurrence === "yearly") {
-        monthlyVal = r.value / 12;
+    // Group active recurring incomes by description (case-insensitive, trimmed) to avoid duplicate counting of multiple pending entries
+    const uniqueIncomes = new Map<string, typeof receivables[0]>();
+    receivables.forEach((r) => {
+      if (r.type === "income" && r.recurrence === "monthly" && r.status !== "paid") {
+        const key = r.description.trim().toLowerCase();
+        // Prefer the "pending" status if it exists, otherwise keep any existing entry of this subscription
+        if (!uniqueIncomes.has(key) || r.status === "pending") {
+          uniqueIncomes.set(key, r);
+        }
       }
-      return s + monthlyVal;
+    });
+
+    const incomeSum = Array.from(uniqueIncomes.values()).reduce((s, r) => {
+      return s + r.value;
     }, 0);
 
-    const recurringExpenses = receivables.filter((r) => r.type === "expense" && r.recurrence !== "once");
-    const expenseSum = recurringExpenses.reduce((s, r) => {
-      let monthlyVal = r.value;
-      if (r.recurrence === "weekly") {
-        monthlyVal = r.value * 4.33;
-      } else if (r.recurrence === "yearly") {
-        monthlyVal = r.value / 12;
+    // Group active recurring expenses by description (case-insensitive, trimmed) to avoid duplicate counting of multiple pending entries
+    const uniqueExpenses = new Map<string, typeof receivables[0]>();
+    receivables.forEach((r) => {
+      if (r.type === "expense" && r.recurrence === "monthly" && r.status !== "paid") {
+        const key = r.description.trim().toLowerCase();
+        // Prefer the "pending" status if it exists, otherwise keep any existing entry of this subscription
+        if (!uniqueExpenses.has(key) || r.status === "pending") {
+          uniqueExpenses.set(key, r);
+        }
       }
-      return s + monthlyVal;
+    });
+
+    console.log("DEBUG_RECURRING_EXPENSES", Array.from(uniqueExpenses.values()).map(e => ({ desc: e.description, val: e.value, rec: e.recurrence, stat: e.status })));
+
+    const expenseSum = Array.from(uniqueExpenses.values()).reduce((s, r) => {
+      return s + r.value;
     }, 0);
 
     return {
       incomeRecurring: incomeSum,
-      incomeRecurringCount: recurringIncomes.length,
+      incomeRecurringCount: uniqueIncomes.size,
+      incomeRecurringItems: Array.from(uniqueIncomes.values()),
       expenseRecurring: expenseSum,
-      expenseRecurringCount: recurringExpenses.length,
+      expenseRecurringCount: uniqueExpenses.size,
+      expenseRecurringItems: Array.from(uniqueExpenses.values()),
     };
   }, [receivables]);
 
@@ -1835,7 +1849,9 @@ export default function Dashboard() {
               
               <div className="flex justify-between items-center py-1">
                 <span>Saldo Total</span>
-                <span className="font-mono text-emerald-600 font-extrabold">{fmt(financialSummarized.balance)}</span>
+                <span className={`font-mono font-extrabold ${financialSummarized.balance < 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                  {fmt(financialSummarized.balance)}
+                </span>
               </div>
 
               <div className="flex justify-between items-center py-1">
@@ -1890,6 +1906,16 @@ export default function Dashboard() {
                   <span className="font-mono font-black text-sm">{fmt(recurringInfo.incomeRecurring)} /mês</span>
                   <span className="text-[10px] text-slate-500 font-semibold">{recurringInfo.incomeRecurringCount} recebimentos</span>
                 </div>
+                {recurringInfo.incomeRecurringItems && recurringInfo.incomeRecurringItems.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-slate-100/60 space-y-1 text-[11px] text-slate-600 font-normal">
+                    {recurringInfo.incomeRecurringItems.map((item, index) => (
+                      <div key={index} className="flex justify-between items-center text-[10px]">
+                        <span className="truncate max-w-[150px] text-slate-500 font-medium">{item.description}</span>
+                        <span className="font-mono font-bold text-slate-700">{fmt(item.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
@@ -1898,6 +1924,16 @@ export default function Dashboard() {
                   <span className="font-mono font-black text-sm">{fmt(recurringInfo.expenseRecurring)} /mês</span>
                   <span className="text-[10px] text-slate-500 font-semibold">{recurringInfo.expenseRecurringCount} pagamentos</span>
                 </div>
+                {recurringInfo.expenseRecurringItems && recurringInfo.expenseRecurringItems.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-slate-100/60 space-y-1 text-[11px] text-slate-600 font-normal">
+                    {recurringInfo.expenseRecurringItems.map((item, index) => (
+                      <div key={index} className="flex justify-between items-center text-[10px]">
+                        <span className="truncate max-w-[150px] text-slate-500 font-medium">{item.description}</span>
+                        <span className="font-mono font-bold text-slate-700">{fmt(item.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
             </div>

@@ -7,15 +7,16 @@ interface KpiCardProps {
   change?: number;
   icon: LucideIcon;
   iconColor?: string;
+  valueClassName?: string;
 }
 
-export function KpiCard({ title, value, change, icon: Icon, iconColor }: KpiCardProps) {
+export function KpiCard({ title, value, change, icon: Icon, iconColor, valueClassName }: KpiCardProps) {
   return (
     <div className="bg-card rounded-xl border p-5 hover:shadow-md transition-shadow duration-200 animate-slide-up">
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <p className="text-sm text-muted-foreground">{title}</p>
-          <p className="text-2xl font-semibold tracking-tight">{value}</p>
+          <p className={cn("text-2xl font-semibold tracking-tight", valueClassName)}>{value}</p>
         </div>
         <div className={cn("p-2.5 rounded-lg", iconColor || "bg-accent")}>
           <Icon className="w-5 h-5 text-accent-foreground" />

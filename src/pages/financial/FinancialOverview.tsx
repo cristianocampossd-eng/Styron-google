@@ -68,7 +68,14 @@ export default function FinancialOverview() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard title="Receitas" value={fmt(totalIncome)} icon={ArrowUpRight} iconColor="bg-success/10" change={12} />
         <KpiCard title="Despesas" value={fmt(totalExpense)} icon={ArrowDownRight} iconColor="bg-destructive/10" change={-3} />
-        <KpiCard title="Saldo Total" value={fmt(totalBalance)} icon={Wallet} iconColor="bg-primary/10" change={8} />
+        <KpiCard 
+          title="Saldo Total" 
+          value={fmt(totalBalance)} 
+          valueClassName={totalBalance < 0 ? "text-rose-600 font-bold" : "text-emerald-600 font-bold"}
+          icon={Wallet} 
+          iconColor="bg-primary/10" 
+          change={8} 
+        />
       </div>
       <ChartCard title="Receitas vs Despesas (Últimos meses)">
         <ResponsiveContainer width="100%" height="100%">
