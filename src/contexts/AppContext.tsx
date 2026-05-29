@@ -1084,6 +1084,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         categoryId: t.categoryId || "",
         value: t.value,
         date: t.date || new Date(),
+        dueDate: t.dueDate,
         description: t.description || ""
       };
       setTransactions((prev) => [newTx, ...prev]);
@@ -1107,6 +1108,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       value: t.value,
       description: finalDescription,
       transaction_date: t.date.toISOString(),
+      due_date: t.dueDate ? t.dueDate.toISOString() : null,
       created_by: user?.id || null,
     };
     if (t.systemId) txPayload.system_id = t.systemId;
@@ -1156,6 +1158,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     if (updated.date) {
       txPayload.transaction_date = updated.date.toISOString();
+    }
+    if (updated.dueDate) {
+      txPayload.due_date = updated.dueDate.toISOString();
     }
     if (updated.systemId !== undefined) {
       txPayload.system_id = updated.systemId;

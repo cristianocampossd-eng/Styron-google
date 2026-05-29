@@ -45,6 +45,7 @@ export default function FinancialTransactions() {
   const [editSystem, setEditSystem] = useState("none");
   const [editAffectsSystem, setEditAffectsSystem] = useState(false);
   const [editDate, setEditDate] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
 
   useEffect(() => {
     supabase.from("company_systems").select("id, name").order("name", { ascending: true }).then(({ data }) => {
@@ -69,6 +70,7 @@ export default function FinancialTransactions() {
   const [formDesc, setFormDesc] = useState("");
   const [formSystem, setFormSystem] = useState("none");
   const [formAffectsSystem, setFormAffectsSystem] = useState(false);
+  const [formDueDate, setFormDueDate] = useState("");
 
   const filtered = transactions.filter((t) => {
     if (typeFilter && t.type !== typeFilter) return false;
@@ -92,6 +94,7 @@ export default function FinancialTransactions() {
       categoryId: formCategory || null,
       value,
       date: new Date(),
+      dueDate: formDueDate ? new Date(formDueDate + "T12:00:00") : undefined,
       description: formDesc || typeLabels[formType],
       systemId: formSystem === "none" ? null : formSystem,
       affectsSystemBalance: formAffectsSystem,
@@ -125,6 +128,8 @@ export default function FinancialTransactions() {
     // Format date is YYYY-MM-DD for native input date
     const yyyymmdd = t.date ? new Date(t.date).toISOString().split("T")[0] : "";
     setEditDate(yyyymmdd);
+    const dueYyyymmdd = t.dueDate ? new Date(t.dueDate).toISOString().split("T")[0] : "";
+    setEditDueDate(dueYyyymmdd);
     setDetailsOpen(true);
   };
 
@@ -174,6 +179,7 @@ export default function FinancialTransactions() {
         value,
         description: editDesc,
         date: new Date(editDate + "T12:00:00"), // Noon to safe guard offsets
+        dueDate: editDueDate ? new Date(editDueDate + "T12:00:00") : undefined,
         systemId: editSystem === "none" ? null : editSystem,
         affectsSystemBalance: editAffectsSystem,
       });
@@ -297,6 +303,7 @@ export default function FinancialTransactions() {
                 <th className="text-left p-4 font-medium text-muted-foreground">Descrição</th>
                 <th className="text-right p-4 font-medium text-muted-foreground">Valor</th>
                 <th className="text-left p-4 font-medium text-muted-foreground hidden sm:table-cell">Data</th>
+                <th className="text-left p-4 font-medium text-muted-foreground hidden sm:table-cell">Vencimento</th>
                 <th className="text-center p-4 font-medium text-muted-foreground w-20">Ações</th>
               </tr>
             </thead>
@@ -332,6 +339,7 @@ export default function FinancialTransactions() {
                       {t.type === "income" ? "+" : "-"}{fmt(t.value)}
                     </td>
                     <td className="p-4 text-muted-foreground hidden sm:table-cell">{format(t.date, "dd/MM/yyyy")}</td>
+                    <td className="p-4 text-muted-foreground hidden sm:table-cell">{t.dueDate ? format(t.dueDate, "dd/MM/yyyy") : "-"}</td>
                     <td className="p-4 text-center">
                       <Button
                         variant="ghost"
@@ -414,6 +422,10 @@ export default function FinancialTransactions() {
               </Select>
             </div>
             <div><Label>Valor</Label><Input type="number" placeholder="R$ 0,00" className="mt-1.5" value={formValue} onChange={(e) => setFormValue(e.target.value)} /></div>
+            <div>
+              <Label>Data de Vencimento</Label>
+              <Input type="date" className="mt-1.5" value={formDueDate} onChange={(e) => setFormDueDate(e.target.value)} />
+            </div>
             <div><Label>Descrição</Label><Input placeholder="Descrição" className="mt-1.5" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} /></div>
 
             <div className="border bg-muted/10 p-3 rounded-lg space-y-3">
@@ -485,6 +497,16 @@ export default function FinancialTransactions() {
                 type="date" 
                 value={editDate} 
                 onChange={(e) => setEditDate(e.target.value)} 
+                className="mt-1.5"
+                disabled={!isAdmin}
+              />
+            </div>
+            <div>
+              <Label>Data de Vencimento</Label>
+              <Input 
+                type="date" 
+                value={editDueDate} 
+                onChange={(e) => setEditDueDate(e.target.value)} 
                 className="mt-1.5"
                 disabled={!isAdmin}
               />

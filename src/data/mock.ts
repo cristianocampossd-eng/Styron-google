@@ -68,6 +68,7 @@ export interface Transaction {
   categoryId: string;
   value: number;
   date: Date;
+  dueDate?: Date;
   description: string;
   systemId?: string | null;
   affectsSystemBalance?: boolean | null;
