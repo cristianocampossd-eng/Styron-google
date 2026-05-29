@@ -587,7 +587,7 @@ export default function Dashboard() {
 
   // --- MIDDLE SIDEBAR INFO: Visão consolidada Financeiro ---
   const financialSummarized = useMemo(() => {
-    const balanceSum = accounts.reduce((s, a) => s + a.balance, 0);
+    const balanceSum = accounts.filter(a => a.id !== "total-balance-account").reduce((s, a) => s + a.balance, 0);
     
     const billsToReceive = filteredReceivables.filter((r) => r.type === "income" && r.status === "pending");
     const toReceiveVal = billsToReceive.reduce((s, r) => s + r.value, 0);

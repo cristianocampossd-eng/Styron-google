@@ -101,14 +101,27 @@ export default function FinancialRecurring() {
       }
     } else {
       setCDesc(""); setCValue(""); setCDueDate(""); setCSystem("none"); setCIsRecurring(false); setCStatus("pending");
+      setCAccount(""); setCCategory(""); setCProject("none");
     }
   }, [editOpen]);
+
+  useEffect(() => {
+    if (createOpen && !editOpen) {
+      if (accounts.length > 0 && !cAccount) {
+        const firstRealAccount = accounts.find(a => a.id !== "total-balance-account") || accounts[0];
+        setCAccount(firstRealAccount.id);
+      }
+      if (categories.length > 0 && !cCategory) {
+        setCCategory(categories[0].id);
+      }
+    }
+  }, [createOpen, editOpen, accounts, categories, cAccount, cCategory]);
 
   useEffect(() => {
     if (payOpen) {
       const item = receivables.find((r) => r.id === payOpen);
       if (item) {
-        setPayAccount(item.accountId || (accounts.length > 0 ? accounts[0].id : ""));
+        setPayAccount(item.accountId || (accounts.length > 0 ? (accounts.find(a => a.id !== "total-balance-account") || accounts[0]).id : ""));
         setPayCategory(item.categoryId || (categories.length > 0 ? categories[0].id : ""));
         setPayProject(item.projectId || "none");
         setPaySystem(item.systemId || "none");
@@ -440,7 +453,7 @@ export default function FinancialRecurring() {
                 <Select value={cAccount} onValueChange={setCAccount}>
                   <SelectTrigger className="mt-1.5"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
-                    {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                    {accounts.filter(a => a.id !== "total-balance-account").map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -485,7 +498,7 @@ export default function FinancialRecurring() {
                 <Select value={payAccount || payingItem?.accountId || ""} onValueChange={setPayAccount}>
                   <SelectTrigger className="mt-1.5"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent>
-                    {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                    {accounts.filter(a => a.id !== "total-balance-account").map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

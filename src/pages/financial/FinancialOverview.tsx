@@ -21,7 +21,7 @@ export default function FinancialOverview() {
   const { transactions, accounts } = useApp();
   const totalIncome = transactions.filter((t) => t.type === "income").reduce((s, t) => s + t.value, 0);
   const totalExpense = transactions.filter((t) => t.type === "expense").reduce((s, t) => s + t.value, 0);
-  const totalBalance = accounts.reduce((s, a) => s + a.balance, 0);
+  const totalBalance = accounts.filter(a => a.id !== "total-balance-account").reduce((s, a) => s + a.balance, 0);
 
   const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 

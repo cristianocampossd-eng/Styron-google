@@ -435,13 +435,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   async function loadTransactions() {
-    const { data } = await supabase
-      .from("financial_transactions")
-      .select("*")
-      .order("transaction_date", { ascending: false });
-    if (data) {
+    const [txRes, entriesRes] = await Promise.all([
+      supabase.from("financial_transactions").select("*").order("transaction_date", { ascending: false }),
+      supabase.from("financial_entries").select("id, due_date, created_at")
+    ]);
+
+    const entriesMap = new Map<string, { due_date?: string | null; created_at?: string | null }>();
+    if (entriesRes.data) {
+      entriesRes.data.forEach((e: any) => {
+        entriesMap.set(e.id, e);
+      });
+    }
+
+    if (txRes.data) {
       setTransactions(
-        data.map((t: any) => {
+        txRes.data.map((t: any) => {
           let systemId = t.system_id || null;
           let affectsSystemBalance = t.affects_system_balance ?? false;
           const desc = t.description || "";
@@ -458,8 +466,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const refMatch = desc.match(/\[ref:([^:\s\]]+)\]/);
           const receivableId = refMatch ? refMatch[1] : null;
 
+          // Parse format: [due:YYYY-MM-DD]
+          let dueDate: Date | undefined = undefined;
+          const dueMatch = desc.match(/\[due:(\d{4}-\d{2}-\d{2})\]/);
+          if (dueMatch) {
+            const [yr, mo, dy] = dueMatch[1].split("-").map(Number);
+            dueDate = new Date(yr, mo - 1, dy);
+          } else if (t.due_date) {
+            dueDate = new Date(t.due_date);
+          } else if (receivableId) {
+            const entry = entriesMap.get(receivableId);
+            if (entry && entry.due_date) {
+              dueDate = new Date(entry.due_date + "T12:00:00");
+            } else if (entry && entry.created_at) {
+              dueDate = new Date(entry.created_at);
+            }
+          }
+
+          // Fallback: If still no dueDate, we can fall back to transaction_date
+          if (!dueDate) {
+            dueDate = new Date(t.transaction_date);
+          }
+
           // Strip metadata tags from the displayed description
-          const cleanDesc = desc.replace(/\s*\[sys:[^\]]+\]/, "").replace(/\s*\[ref:[^\]]+\]/, "");
+          const cleanDesc = desc
+            .replace(/\s*\[sys:[^\]]+\]/, "")
+            .replace(/\s*\[ref:[^\]]+\]/, "")
+            .replace(/\s*\[due:[^\]]+\]/, "");
 
           return {
             id: t.id,
@@ -469,6 +502,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             categoryId: t.category_id || "",
             value: Number(t.value),
             date: new Date(t.transaction_date),
+            dueDate,
             description: cleanDesc,
             rawDescription: desc,
             receivableId,
@@ -499,6 +533,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   async function loadReceivables() {
     const { data } = await supabase.from("financial_entries").select("*").order("created_at", { ascending: false });
     if (data) {
+      let localAccountMapping: Record<string, string> = {};
+      try {
+        const stored = localStorage.getItem("financial_entries_accounts");
+        if (stored) localAccountMapping = JSON.parse(stored);
+      } catch (err) {
+        console.warn("Failed to load local account mapping:", err);
+      }
+
       setReceivables(
         data.map((r: any) => {
           let parsedDueDate = new Date();
@@ -512,6 +554,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           } else if (r.created_at) {
             parsedDueDate = new Date(r.created_at);
           }
+
+          const dbAccountId = r.account_id;
+          const localAccountId = localAccountMapping[r.id];
+          const finalAccountId = dbAccountId || localAccountId || "";
+
           return {
             id: r.id,
             date: new Date(r.created_at),
@@ -524,7 +571,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             value: Number(r.value),
             projectId: r.project_id,
             categoryId: r.category_id || "",
-            accountId: r.account_id || "",
+            accountId: finalAccountId,
           };
         })
       );
@@ -1097,6 +1144,65 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshTransactions = loadTransactions;
   const refreshAccounts = loadAccounts;
 
+  const updateDescriptionWithTags = (
+    currentDesc: string | undefined,
+    updates: {
+      systemId?: string | null;
+      affectsSystemBalance?: boolean | null;
+      dueDate?: Date | null;
+      receivableId?: string | null;
+    }
+  ): string => {
+    let desc = currentDesc || "";
+    
+    // 1. Extract existing tag values from the description if not override
+    const refMatch = desc.match(/\[ref:([^:\s\]]+)\]/);
+    const existingRefId = refMatch ? refMatch[1] : null;
+    
+    const sysMatch = desc.match(/\[sys:([^:\s\]]+)(?::([yn]))?\]/);
+    const existingSystemId = sysMatch ? sysMatch[1] : null;
+    const existingAffects = sysMatch ? sysMatch[2] === 'y' : false;
+    
+    const dueMatch = desc.match(/\[due:(\d{4}-\d{2}-\d{2})\]/);
+    const existingDueDateStr = dueMatch ? dueMatch[1] : null;
+    
+    // 2. Clear out all existing tags
+    desc = desc
+      .replace(/\s*\[sys:[^\]]+\]/g, "")
+      .replace(/\s*\[ref:[^\]]+\]/g, "")
+      .replace(/\s*\[due:[^\]]+\]/g, "")
+      .trim();
+      
+    // 3. Select final values
+    const finalRef = updates.receivableId !== undefined ? updates.receivableId : existingRefId;
+    const finalSystemId = updates.systemId !== undefined ? updates.systemId : existingSystemId;
+    const finalAffects = updates.affectsSystemBalance !== undefined ? updates.affectsSystemBalance : existingAffects;
+    
+    let finalDueDateStr = existingDueDateStr;
+    if (updates.dueDate !== undefined) {
+      if (updates.dueDate) {
+        const yr = updates.dueDate.getFullYear();
+        const mo = String(updates.dueDate.getMonth() + 1).padStart(2, "0");
+        const dy = String(updates.dueDate.getDate()).padStart(2, "0");
+        finalDueDateStr = `${yr}-${mo}-${dy}`;
+      } else {
+        finalDueDateStr = null;
+      }
+    }
+    
+    if (finalRef) {
+      desc = `${desc} [ref:${finalRef}]`.trim();
+    }
+    if (finalSystemId) {
+      desc = `${desc} [sys:${finalSystemId}:${finalAffects ? 'y' : 'n'}]`.trim();
+    }
+    if (finalDueDateStr) {
+      desc = `${desc} [due:${finalDueDateStr}]`.trim();
+    }
+    
+    return desc;
+  };
+
   const addTransaction = useCallback(async (t: Omit<Transaction, "id">) => {
     if (useLocalFallback) {
       const newTx: Transaction = {
@@ -1119,9 +1225,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const finalDescription = t.systemId 
-      ? `${t.description || ""} [sys:${t.systemId}:${t.affectsSystemBalance ? 'y' : 'n'}]`.trim()
-      : t.description;
+    const finalDescription = updateDescriptionWithTags(t.description, {
+      systemId: t.systemId,
+      affectsSystemBalance: t.affectsSystemBalance,
+      dueDate: t.dueDate,
+      receivableId: t.receivableId || (t.description ? t.description.match(/\[ref:([^:\s\]]+)\]/)?.[1] : null),
+    });
 
     const txPayload: any = {
       type: t.type,
@@ -1170,9 +1279,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const finalDescription = updated.systemId 
-      ? `${updated.description || ""} [sys:${updated.systemId}:${updated.affectsSystemBalance ? 'y' : 'n'}]`.trim()
-      : updated.description;
+    const existingTx = transactions.find((txn) => txn.id === id);
+    const prevRawDesc = existingTx?.rawDescription || existingTx?.description || "";
+    const baseDesc = updated.description !== undefined ? updated.description : (existingTx?.description || "");
+
+    const finalDescription = updateDescriptionWithTags(baseDesc, {
+      systemId: updated.systemId !== undefined ? updated.systemId : (existingTx?.systemId || null),
+      affectsSystemBalance: updated.affectsSystemBalance !== undefined ? updated.affectsSystemBalance : (existingTx?.affectsSystemBalance || false),
+      dueDate: updated.dueDate !== undefined ? updated.dueDate : (existingTx?.dueDate || null),
+      receivableId: existingTx?.receivableId || prevRawDesc.match(/\[ref:([^:\s\]]+)\]/)?.[1] || null
+    });
 
     const txPayload: any = {
       type: updated.type,
@@ -1209,7 +1325,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     toast.success("Movimentação atualizada!");
     await loadTransactions();
-  }, [useLocalFallback]);
+  }, [useLocalFallback, transactions]);
 
   const deleteTransaction = useCallback(async (id: string) => {
     if (useLocalFallback) {
@@ -1282,11 +1398,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       account_id: r.accountId || null,
     };
 
-    let { error } = await supabase.from("financial_entries").insert(payload);
+    const { data: insertResult, error: initialError } = await supabase.from("financial_entries").insert(payload).select();
+    let error = initialError;
+    let insertedRow = insertResult?.[0];
+
     if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
       const { account_id, ...cleanPayload } = payload;
-      const retryRes = await supabase.from("financial_entries").insert(cleanPayload);
+      const retryRes = await supabase.from("financial_entries").insert(cleanPayload).select();
       error = retryRes.error;
+      insertedRow = retryRes.data?.[0];
     }
 
     if (error) { 
@@ -1294,6 +1414,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast.error("Erro ao registrar: " + error.message); 
       return; 
     }
+
+    if (insertedRow && r.accountId) {
+      try {
+        const stored = localStorage.getItem("financial_entries_accounts");
+        const mapping = stored ? JSON.parse(stored) : {};
+        mapping[insertedRow.id] = r.accountId;
+        localStorage.setItem("financial_entries_accounts", JSON.stringify(mapping));
+      } catch (err) {
+        console.warn("Failed to save local account mapping:", err);
+      }
+    }
+
     toast.success(r.type === "income" ? "Receita registrada!" : "Despesa registrada!");
     await loadReceivables();
   }, [useLocalFallback]);
@@ -1327,6 +1459,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     if (error) { toast.error("Erro ao atualizar: " + error.message); return; }
+
+    if (data.accountId) {
+      try {
+        const stored = localStorage.getItem("financial_entries_accounts");
+        const mapping = stored ? JSON.parse(stored) : {};
+        mapping[id] = data.accountId;
+        localStorage.setItem("financial_entries_accounts", JSON.stringify(mapping));
+      } catch (err) {
+        console.warn("Failed to save local account mapping:", err);
+      }
+    }
+
     await loadReceivables();
     toast.success("Atualizado!");
   }, [useLocalFallback]);
@@ -1345,6 +1489,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         categoryId: paymentData.categoryId,
         value: finalValue,
         date: new Date(),
+        dueDate: item.dueDate,
         description: `${item.description || ""} [ref:${id}]`,
         systemId: paymentData.systemId
       };
@@ -1353,7 +1498,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const delta = item.type === "income" ? finalValue : -finalValue;
       setAccounts((prev) => prev.map((a) => a.id === paymentData.accountId ? { ...a, balance: a.balance + delta } : a));
 
-      setReceivables((prev) => prev.map((r) => r.id === id ? { ...r, status: "paid" } : r));
+      if (item.isRecurring) {
+        // Generate next recurring item first
+        const nextDueDate = new Date(item.dueDate);
+        if (item.recurrence === "daily") nextDueDate.setDate(nextDueDate.getDate() + 1);
+        else if (item.recurrence === "weekly") nextDueDate.setDate(nextDueDate.getDate() + 7);
+        else if (item.recurrence === "monthly") nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+        else if (item.recurrence === "yearly") nextDueDate.setFullYear(nextDueDate.getFullYear() + 1);
+
+        const newRec: ReceivablePayable = {
+          id: `rec-${Date.now() + 1}`,
+          date: new Date(),
+          dueDate: nextDueDate,
+          description: item.description,
+          type: item.type,
+          status: "pending",
+          isRecurring: true,
+          recurrence: item.recurrence,
+          value: item.value,
+          projectId: item.projectId,
+          categoryId: item.categoryId,
+          accountId: item.accountId,
+          systemId: item.systemId,
+        };
+
+        setReceivables((prev) => [
+          newRec,
+          ...prev.map((r) => r.id === id ? { ...r, status: "paid", isRecurring: false, recurrence: "once" as any } : r)
+        ]);
+      } else {
+        setReceivables((prev) => prev.map((r) => r.id === id ? { ...r, status: "paid" } : r));
+      }
+
       toast.success(item.type === "income" ? "Recebimento confirmado!" : "Pagamento confirmado!");
       return;
     }
@@ -1371,11 +1547,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         systemId: paymentData.systemId,
         value: finalValue,
         date: new Date(),
-        description: `${item.description || ""} [ref:${id}]`,
+        dueDate: item.dueDate,
+        receivableId: id,
+        description: item.description,
       });
 
       if (item.isRecurring) {
-          // Create new item
+          // Create new item with isRecurring = true
           const nextDueDate = new Date(item.dueDate);
           if (item.recurrence === "daily") nextDueDate.setDate(nextDueDate.getDate() + 1);
           else if (item.recurrence === "weekly") nextDueDate.setDate(nextDueDate.getDate() + 7);
@@ -1400,7 +1578,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       await updateAccountBalance(paymentData.accountId, item.type === "income" ? finalValue : -finalValue);
 
-      const { error } = await supabase.from("financial_entries").update({ status: "paid" }).eq("id", id);
+      // Mark the paid item itself as non-recurring (once)
+      const updateData: any = { status: "paid" };
+      if (item.isRecurring) {
+        updateData.recurrence = "once";
+      }
+
+      const { error } = await supabase.from("financial_entries").update(updateData).eq("id", id);
       if (error) { toast.error("Erro ao atualizar status"); return; }
       toast.success(item.type === "income" ? "Recebimento confirmado!" : "Pagamento confirmado!");
       await loadReceivables();
