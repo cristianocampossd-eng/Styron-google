@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, LayoutGrid, List, MoreHorizontal, Copy, Archive, FileText, Pencil } from "lucide-react";
+import { Plus, LayoutGrid, List, MoreHorizontal, Copy, Archive, FileText, Pencil, Trash2 } from "lucide-react";
 import { statusLabels, type Project, type ProjectStatus } from "@/data/mock";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,6 +14,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -32,10 +42,12 @@ import { cn } from "@/lib/utils";
 export default function Projects() {
   const [view, setView] = useState<"table" | "cards">("table");
   const [createOpen, setCreateOpen] = useState(false);
+  const [manageTemplatesOpen, setManageTemplatesOpen] = useState(false);
+  const [templateToDelete, setTemplateToDelete] = useState<Project | null>(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const statusFilter = searchParams.get("status") as ProjectStatus | null;
-  const { projects, addProject, getProjectCode, profiles, templates } = useApp();
+  const { projects, addProject, getProjectCode, profiles, templates, deleteTemplate } = useApp();
 
   const [fName, setFName] = useState("");
   const [fDesc, setFDesc] = useState("");
@@ -73,10 +85,16 @@ export default function Projects() {
         title="Projetos"
         description="Gerencie todos os seus projetos"
         actions={
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Novo Projeto
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setManageTemplatesOpen(true)}>
+              <FileText className="w-4 h-4 mr-2" />
+              Modelos Salvos
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Novo Projeto
+            </Button>
+          </div>
         }
         filters={
           <div className="flex gap-1 bg-secondary rounded-lg p-1 flex-wrap">
@@ -253,6 +271,72 @@ export default function Projects() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Manage Templates Modal */}
+      <Dialog open={manageTemplatesOpen} onOpenChange={setManageTemplatesOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Gerenciar Modelos Salvos</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4 max-h-[400px] overflow-y-auto">
+            {templates.length === 0 ? (
+              <p className="text-sm text-center text-muted-foreground py-6">Nenhum modelo salvo encontrado.</p>
+            ) : (
+              <div className="divide-y">
+                {templates.map((t) => (
+                  <div key={t.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                    <div className="space-y-1 pr-4">
+                      <p className="text-sm font-medium">{t.name}</p>
+                      {t.description && (
+                        <p className="text-xs text-muted-foreground line-clamp-2">{t.description}</p>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                      onClick={() => {
+                        setTemplateToDelete(t);
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManageTemplatesOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Template Alert Dialog */}
+      <AlertDialog open={!!templateToDelete} onOpenChange={(open) => !open && setTemplateToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir modelo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir o modelo "{templateToDelete?.name}"? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={async () => {
+                if (templateToDelete) {
+                  await deleteTemplate(templateToDelete.id);
+                  setTemplateToDelete(null);
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

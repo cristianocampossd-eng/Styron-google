@@ -68,6 +68,7 @@ interface AppContextType {
   updateProjectInvestment: (id: string, value: number) => Promise<void>;
   duplicateProject: (id: string) => Promise<void>;
   saveProjectAsTemplate: (id: string) => Promise<void>;
+  deleteTemplate: (id: string) => Promise<void>;
   archiveProject: (id: string) => Promise<void>;
   importFromTemplate: (targetProjectId: string, templateId: string, baseStartDate: Date) => Promise<void>;
   updateTask: (projectId: string, taskId: string, data: Partial<Task> & { stageId?: string }) => Promise<void>;
@@ -919,13 +920,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const source = projects.find((p) => p.id === id);
     if (!source) return;
+
+    const source_start = source.startDate ? (source.startDate instanceof Date ? source.startDate.toISOString().split("T")[0] : new Date(source.startDate).toISOString().split("T")[0]) : new Date().toISOString().split("T")[0];
+    const source_end = source.endDate ? (source.endDate instanceof Date ? source.endDate.toISOString().split("T")[0] : new Date(source.endDate).toISOString().split("T")[0]) : new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0];
+
     const { data, error } = await supabase.from("projects").insert({
       name: `${source.name} (modelo)`,
       description: source.description,
       status: "planning",
       progress: 0,
-      start_date: new Date().toISOString().split("T")[0],
-      end_date: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+      start_date: source_start,
+      end_date: source_end,
       created_by: user?.id || null,
       is_template: true,
       project_code: "",
@@ -940,6 +945,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .single();
       if (newStage) {
         for (const t of s.tasks) {
+          const t_start = t.startDate ? (t.startDate instanceof Date ? t.startDate.toISOString().split("T")[0] : new Date(t.startDate).toISOString().split("T")[0]) : null;
+          const t_end = t.endDate ? (t.endDate instanceof Date ? t.endDate.toISOString().split("T")[0] : new Date(t.endDate).toISOString().split("T")[0]) : null;
+
           await supabase.from("tasks").insert({
             project_id: data.id,
             stage_id: newStage.id,
@@ -947,6 +955,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             description: t.description || "",
             priority: t.priority || "medium",
             status: "pending",
+            start_date: t_start,
+            end_date: t_end,
             created_by: user?.id || null,
           });
         }
@@ -955,6 +965,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast.success("Modelo salvo!");
     await loadProjects();
   }, [projects, user, useLocalFallback]);
+
+  const deleteTemplate = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+      toast.success("Modelo excluído!");
+      return;
+    }
+
+    try {
+      await supabase.from("tasks").delete().eq("project_id", id);
+      await supabase.from("project_stages").delete().eq("project_id", id);
+      const { error } = await supabase.from("projects").delete().eq("id", id);
+      if (error) throw error;
+      toast.success("Modelo excluído!");
+      await loadProjects();
+    } catch (err: any) {
+      console.error("Erro ao excluir modelo:", err);
+      toast.error("Erro ao excluir modelo");
+    }
+  }, [useLocalFallback]);
 
   const archiveProject = useCallback(async (id: string) => {
     if (useLocalFallback) {
@@ -973,7 +1003,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const templateBaseDate = templateProj.startDate ? new Date(templateProj.startDate) : new Date();
+    const getCleanLocalDate = (val: any) => {
+      if (!val) return new Date();
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return new Date();
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
+    };
+
+    const templateBaseDateClean = getCleanLocalDate(templateProj.startDate);
 
     if (useLocalFallback) {
       setProjects((prev) => prev.map((p) => {
@@ -985,16 +1022,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const stageId = `stage-copied-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
           
           const copiedTasks: Task[] = s.tasks.map((t) => {
-            const tStart = t.startDate ? new Date(t.startDate) : new Date();
-            const tEnd = t.endDate ? new Date(t.endDate) : new Date();
+            const tStartClean = getCleanLocalDate(t.startDate);
+            const tEndClean = getCleanLocalDate(t.endDate);
 
-            const offsetDiff = tStart.getTime() - templateBaseDate.getTime();
+            const offsetDiff = tStartClean.getTime() - templateBaseDateClean.getTime();
             const offsetDays = Math.round(offsetDiff / (1000 * 60 * 60 * 24));
 
-            const durationDiff = tEnd.getTime() - tStart.getTime();
+            const durationDiff = tEndClean.getTime() - tStartClean.getTime();
             const durationDays = Math.round(durationDiff / (1000 * 60 * 60 * 24));
 
-            const newStart = new Date(baseStartDate.getTime());
+            const newStart = new Date(getCleanLocalDate(baseStartDate).getTime());
             newStart.setDate(newStart.getDate() + offsetDays);
 
             const newEnd = new Date(newStart.getTime());
@@ -1048,16 +1085,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
 
         for (const t of s.tasks) {
-          const tStart = t.startDate ? new Date(t.startDate) : new Date();
-          const tEnd = t.endDate ? new Date(t.endDate) : new Date();
+          const tStartClean = getCleanLocalDate(t.startDate);
+          const tEndClean = getCleanLocalDate(t.endDate);
 
-          const offsetDiff = tStart.getTime() - templateBaseDate.getTime();
+          const offsetDiff = tStartClean.getTime() - templateBaseDateClean.getTime();
           const offsetDays = Math.round(offsetDiff / (1000 * 60 * 60 * 24));
 
-          const durationDiff = tEnd.getTime() - tStart.getTime();
+          const durationDiff = tEndClean.getTime() - tStartClean.getTime();
           const durationDays = Math.round(durationDiff / (1000 * 60 * 60 * 24));
 
-          const newStart = new Date(baseStartDate.getTime());
+          const newStart = new Date(getCleanLocalDate(baseStartDate).getTime());
           newStart.setDate(newStart.getDate() + offsetDays);
 
           const newEnd = new Date(newStart.getTime());
@@ -2079,7 +2116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider
       value={{
         projects, templates, transactions, accounts, receivables, categories, taskMessages, notifications, loading, profiles, setProfiles,
-        addProject, updateProject, updateProjectInvestment, duplicateProject, saveProjectAsTemplate, archiveProject, importFromTemplate, updateTask, deleteTask, updateStage, deleteStage, addStage, addTask,
+        addProject, updateProject, updateProjectInvestment, duplicateProject, saveProjectAsTemplate, deleteTemplate, archiveProject, importFromTemplate, updateTask, deleteTask, updateStage, deleteStage, addStage, addTask,
         addTransaction, updateTransaction, deleteTransaction, updateAccountBalance,
         addReceivable, updateReceivable, payReceivable, deleteReceivable, revertReceivable,
         addTaskMessage, addNotification, markNotificationRead, getProjectCode,
