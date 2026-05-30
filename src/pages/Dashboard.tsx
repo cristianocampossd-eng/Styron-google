@@ -282,12 +282,39 @@ export default function Dashboard() {
   }, [orders, projectFilter, systemFilter, transactions, startDateStr, endDateStr]);
 
   const filteredReceivables = useMemo(() => {
+    let maxDateStr = endDateStr;
+    try {
+      const endD = new Date(endDateStr + "T12:00:00");
+      const nextDay = new Date(endD.getTime() + 24 * 60 * 60 * 1000);
+      const y = nextDay.getFullYear();
+      const m = String(nextDay.getMonth() + 1).padStart(2, '0');
+      const r = String(nextDay.getDate()).padStart(2, '0');
+      maxDateStr = `${y}-${m}-${r}`;
+    } catch (err) {
+      // fallback
+    }
+
     return receivables.filter((r) => {
       if (projectFilter !== "all" && r.projectId !== projectFilter) return false;
-      if (!isWithinDateRange(r.dueDate)) return false;
+      
+      if (selectedPeriod !== "Total") {
+        let dateStr = "";
+        if (typeof r.dueDate === "string") {
+          dateStr = (r.dueDate as string).substring(0, 10);
+        } else {
+          const d = new Date(r.dueDate);
+          if (!isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, "0");
+            dateStr = `${y}-${m}-${day}`;
+          }
+        }
+        if (dateStr && dateStr > maxDateStr) return false;
+      }
       return true;
     });
-  }, [receivables, projectFilter, startDateStr, endDateStr]);
+  }, [receivables, projectFilter, selectedPeriod, endDateStr]);
 
 
   // --- KPI CALCULATIONS ---
@@ -589,11 +616,11 @@ export default function Dashboard() {
   const financialSummarized = useMemo(() => {
     const balanceSum = accounts.filter(a => a.id !== "total-balance-account").reduce((s, a) => s + a.balance, 0);
     
-    const billsToReceive = filteredReceivables.filter((r) => r.type === "income" && r.status === "pending");
+    const billsToReceive = filteredReceivables.filter((r) => r.type === "income" && r.status !== "paid");
     const toReceiveVal = billsToReceive.reduce((s, r) => s + r.value, 0);
     const toReceiveCount = billsToReceive.length;
 
-    const billsToPay = filteredReceivables.filter((r) => r.type === "expense" && r.status === "pending");
+    const billsToPay = filteredReceivables.filter((r) => r.type === "expense" && r.status !== "paid");
     const toPayVal = billsToPay.reduce((s, r) => s + r.value, 0);
     const toPayCount = billsToPay.length;
 

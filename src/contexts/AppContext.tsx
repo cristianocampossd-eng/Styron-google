@@ -1047,9 +1047,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const updates: any = {};
     if (data.name !== undefined) updates.title = data.name;
+    if (data.description !== undefined) updates.description = data.description;
     if (data.status !== undefined) updates.status = data.status;
     if (data.responsible !== undefined) updates.responsible_id = data.responsible;
     if (data.priority !== undefined) updates.priority = data.priority;
+    if (data.startDate !== undefined && data.startDate !== null) {
+      const d = typeof data.startDate === "string" ? new Date(data.startDate) : data.startDate;
+      updates.start_date = !isNaN(d.getTime()) ? d.toISOString().split("T")[0] : null;
+    }
+    if (data.endDate !== undefined && data.endDate !== null) {
+      const d = typeof data.endDate === "string" ? new Date(data.endDate) : data.endDate;
+      updates.end_date = !isNaN(d.getTime()) ? d.toISOString().split("T")[0] : null;
+    }
 
     const { error } = await supabase.from("tasks").update(updates).eq("id", taskId);
     if (error) { toast.error("Erro ao atualizar tarefa"); return; }

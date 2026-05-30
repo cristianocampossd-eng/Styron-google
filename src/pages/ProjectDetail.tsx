@@ -151,6 +151,10 @@ export default function ProjectDetail() {
                   <Button variant="ghost" size="icon" onClick={() => {
                     setTName(selectedTask.name);
                     setTDesc(selectedTask.description);
+                    const startD = selectedTask.startDate ? new Date(selectedTask.startDate) : null;
+                    const endD = selectedTask.endDate ? new Date(selectedTask.endDate) : null;
+                    setTStart(startD && !isNaN(startD.getTime()) ? format(startD, "yyyy-MM-dd") : "");
+                    setTEnd(endD && !isNaN(endD.getTime()) ? format(endD, "yyyy-MM-dd") : "");
                     setEditTaskMode(true);
                   }}>
                     <Pencil className="w-4 h-4 text-muted-foreground" />
@@ -169,10 +173,44 @@ export default function ProjectDetail() {
                       className="mt-1"
                     />
                   </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Data de Início</Label>
+                      <Input 
+                        type="date" 
+                        value={tStart} 
+                        onChange={(e) => setTStart(e.target.value)} 
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label>Data de Término</Label>
+                      <Input 
+                        type="date" 
+                        value={tEnd} 
+                        onChange={(e) => setTEnd(e.target.value)} 
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
                   <div className="flex gap-2">
                     <Button onClick={() => {
-                      updateTask(project.id, selectedTask.id, { name: tName, description: tDesc });
-                      setSelectedTask({ ...selectedTask, name: tName, description: tDesc });
+                      const updatedStartDate = tStart ? new Date(tStart + "T12:00:00") : selectedTask.startDate;
+                      const updatedEndDate = tEnd ? new Date(tEnd + "T12:00:00") : selectedTask.endDate;
+
+                      updateTask(project.id, selectedTask.id, { 
+                        name: tName, 
+                        description: tDesc,
+                        startDate: updatedStartDate,
+                        endDate: updatedEndDate
+                      });
+                      setSelectedTask({ 
+                        ...selectedTask, 
+                        name: tName, 
+                        description: tDesc,
+                        startDate: updatedStartDate,
+                        endDate: updatedEndDate
+                      });
                       toast.success("Tarefa atualizada!");
                       setEditTaskMode(false);
                     }}>Salvar</Button>
