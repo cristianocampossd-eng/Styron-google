@@ -830,7 +830,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         
         let status = p.status;
         if (status !== "archived") {
-          status = completed === total && total > 0 ? "completed" : completed > 0 ? "in_progress" : "planning";
+          const sortedStages = [...updatedStages].sort((a, b) => (a.order || 0) - (b.order || 0));
+          const firstStage = sortedStages[0];
+          const firstStageTasks = firstStage ? firstStage.tasks : [];
+          const allFirstStageCompleted = firstStageTasks.length > 0 ? firstStageTasks.every(t => t.status === "done") : true;
+
+          status = completed === total && total > 0 ? "completed" : (allFirstStageCompleted && completed > 0) ? "in_progress" : "planning";
         }
 
         return {
@@ -973,18 +978,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const { data: projectTasks } = await supabase
         .from("tasks")
-        .select("id, status")
+        .select("id, status, stage_id")
         .eq("project_id", projectId);
+
+      const { data: stagesData } = await supabase
+        .from("project_stages")
+        .select("id, order")
+        .eq("project_id", projectId)
+        .order("order", { ascending: true });
 
       if (projectTasks && projectTasks.length > 0) {
         const completedCount = projectTasks.filter((t) => t.status === "done").length;
         const totalCount = projectTasks.length;
         const progressVal = Math.round((completedCount / totalCount) * 100);
 
+        const firstStageId = stagesData && stagesData.length > 0 ? stagesData[0].id : null;
+        const firstStageTasks = firstStageId 
+          ? projectTasks.filter((t) => t.stage_id === firstStageId)
+          : [];
+        const allFirstStageCompleted = firstStageTasks.length > 0 
+          ? firstStageTasks.every((t) => t.status === "done") 
+          : true;
+
         let newStatus = projectData.status;
         if (completedCount === totalCount) {
           newStatus = "completed";
-        } else if (completedCount >= 1) {
+        } else if (allFirstStageCompleted && completedCount >= 1) {
           newStatus = "in_progress";
         } else {
           newStatus = "planning";
@@ -1028,7 +1047,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         
         let status = p.status;
         if (status !== "archived") {
-          status = completed === total && total > 0 ? "completed" : completed > 0 ? "in_progress" : "planning";
+          const sortedStages = [...updatedStages].sort((a, b) => (a.order || 0) - (b.order || 0));
+          const firstStage = sortedStages[0];
+          const firstStageTasks = firstStage ? firstStage.tasks : [];
+          const allFirstStageCompleted = firstStageTasks.length > 0 ? firstStageTasks.every(t => t.status === "done") : true;
+
+          status = completed === total && total > 0 ? "completed" : (allFirstStageCompleted && completed > 0) ? "in_progress" : "planning";
         }
 
         return {
@@ -1082,7 +1106,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         
         let status = p.status;
         if (status !== "archived") {
-          status = completed === total && total > 0 ? "completed" : completed > 0 ? "in_progress" : "planning";
+          const sortedStages = [...updatedStages].sort((a, b) => (a.order || 0) - (b.order || 0));
+          const firstStage = sortedStages[0];
+          const firstStageTasks = firstStage ? firstStage.tasks : [];
+          const allFirstStageCompleted = firstStageTasks.length > 0 ? firstStageTasks.every(t => t.status === "done") : true;
+
+          status = completed === total && total > 0 ? "completed" : (allFirstStageCompleted && completed > 0) ? "in_progress" : "planning";
         }
 
         return {
