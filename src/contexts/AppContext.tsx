@@ -70,7 +70,7 @@ interface AppContextType {
   saveProjectAsTemplate: (id: string) => Promise<void>;
   archiveProject: (id: string) => Promise<void>;
   importFromTemplate: (targetProjectId: string, templateId: string, baseStartDate: Date) => Promise<void>;
-  updateTask: (projectId: string, taskId: string, data: Partial<Task>) => Promise<void>;
+  updateTask: (projectId: string, taskId: string, data: Partial<Task> & { stageId?: string }) => Promise<void>;
   deleteTask: (projectId: string, taskId: string) => Promise<void>;
   updateStage: (projectId: string, stageId: string, name: string) => Promise<void>;
   deleteStage: (projectId: string, stageId: string) => Promise<void>;
@@ -1148,22 +1148,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateTask = useCallback(async (projectId: string, taskId: string, data: Partial<Task>) => {
+  const updateTask = useCallback(async (projectId: string, taskId: string, data: Partial<Task> & { stageId?: string }) => {
     if (useLocalFallback) {
       const updateFn = (list: Project[]) => list.map((p) => {
         if (p.id !== projectId) return p;
-        const updatedStages = p.stages.map((s) => ({
-          ...s,
-          tasks: s.tasks.map((t) => {
-            if (t.id !== taskId) return t;
+
+        let foundTask: Task | null = null;
+
+        // First pass: locate the task model, remove it if stageId is specified and it belongs to another stage
+        let updatedStages = p.stages.map((s) => {
+          const keepTasks = s.tasks.filter((t) => {
+            if (t.id === taskId) {
+              foundTask = {
+                ...t,
+                ...data,
+                startDate: data.startDate ? new Date(data.startDate) : t.startDate,
+                endDate: data.endDate ? new Date(data.endDate) : t.endDate,
+              };
+              // Remove from this stage if we are moving to a different stage
+              return !data.stageId || s.id === data.stageId;
+            }
+            return true;
+          });
+          return { ...s, tasks: keepTasks };
+        });
+
+        // Second pass: if we updated a stage ID and located the task, add it to the target stage
+        if (data.stageId && foundTask) {
+          const targetStageId = data.stageId;
+          updatedStages = updatedStages.map((s) => {
+            if (s.id === targetStageId) {
+              const exists = s.tasks.some((t) => t.id === taskId);
+              if (!exists && foundTask) {
+                return { ...s, tasks: [...s.tasks, foundTask] };
+              }
+            }
+            return s;
+          });
+        } else if (!data.stageId && foundTask) {
+          // If stageId is not changed, update it in whatever stage it already resides in
+          updatedStages = updatedStages.map((s) => {
             return {
-              ...t,
-              ...data,
-              startDate: data.startDate ? new Date(data.startDate) : t.startDate,
-              endDate: data.endDate ? new Date(data.endDate) : t.endDate,
+              ...s,
+              tasks: s.tasks.map((t) => {
+                if (t.id === taskId && foundTask) {
+                  return foundTask;
+                }
+                return t;
+              })
             };
-          })
-        }));
+          });
+        }
 
         const allTasks = updatedStages.flatMap((stg) => stg.tasks);
         const total = allTasks.length;
@@ -1200,6 +1235,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (data.status !== undefined) updates.status = data.status;
     if (data.responsible !== undefined) updates.responsible_id = data.responsible;
     if (data.priority !== undefined) updates.priority = data.priority;
+    if (data.stageId !== undefined) updates.stage_id = data.stageId;
     if (data.startDate !== undefined && data.startDate !== null) {
       const d = typeof data.startDate === "string" ? new Date(data.startDate) : data.startDate;
       updates.start_date = !isNaN(d.getTime()) ? d.toISOString().split("T")[0] : null;

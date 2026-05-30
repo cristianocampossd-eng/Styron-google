@@ -172,6 +172,8 @@ export default function ProjectDetail() {
                     setTResp(selectedTask.responsible || "");
                     setTPrior(selectedTask.priority || "medium");
                     setTStatus(selectedTask.status || "todo");
+                    const curStage = project?.stages.find((s) => s.tasks.some((t) => t.id === selectedTask.id));
+                    setTStageId(curStage ? curStage.id : "");
                     setEditTaskMode(true);
                   }}>
                     <Pencil className="w-4 h-4 text-muted-foreground" />
@@ -190,6 +192,24 @@ export default function ProjectDetail() {
                       className="mt-1"
                     />
                   </div>
+
+                  {project && project.stages && project.stages.length > 0 && (
+                    <div>
+                      <Label>Etapa</Label>
+                      <Select value={tStageId} onValueChange={setTStageId}>
+                        <SelectTrigger className="mt-1.5">
+                          <SelectValue placeholder="Selecione a etapa" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {project.stages.map((stg) => (
+                            <SelectItem key={stg.id} value={stg.id}>
+                              {stg.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
                   <div>
                     <Label>Responsável</Label>
@@ -262,6 +282,7 @@ export default function ProjectDetail() {
                         responsible: tResp,
                         priority: tPrior,
                         status: tStatus,
+                        stageId: tStageId,
                       });
                       setSelectedTask({ 
                         ...selectedTask, 
