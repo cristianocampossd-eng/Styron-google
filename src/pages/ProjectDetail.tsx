@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Plus, GanttChart, List, Activity, MoreHorizontal, CheckCircle2, UserPlus, Pencil, MessageSquare, Send, Trash2 } from "lucide-react";
-import { statusLabels, taskStatusLabels, priorityLabels, priorityColors, type Task, type Stage, type TaskStatus } from "@/data/mock";
+import { ArrowLeft, Plus, GanttChart, List, Activity, MoreHorizontal, CheckCircle2, UserPlus, Pencil, MessageSquare, Send, Trash2, Copy } from "lucide-react";
+import { statusLabels, taskStatusLabels, priorityLabels, priorityColors, type Task, type Stage, type TaskStatus, type TaskPriority } from "@/data/mock";
 import { useAuth } from "@/contexts/AuthContext";
 import { useApp } from "@/contexts/AppContext";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { projects, updateTask, deleteTask, updateStage, deleteStage, taskMessages, addTaskMessage, getProjectCode, profiles, addStage, addTask } = useApp();
+  const { projects, templates, importFromTemplate, updateTask, deleteTask, updateStage, deleteStage, taskMessages, addTaskMessage, getProjectCode, profiles, addStage, addTask } = useApp();
   const { user, profile: authProfile } = useAuth();
   const project = projects.find((p) => p.id === id);
   const isProjectCreator = user?.id === project?.createdBy;
@@ -36,6 +36,9 @@ export default function ProjectDetail() {
   const [taskTab, setTaskTab] = useState<"details" | "messages">("details");
   const [addStageOpen, setAddStageOpen] = useState(false);
   const [addTaskOpen, setAddTaskOpen] = useState(false);
+  const [copyTemplateOpen, setCopyTemplateOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [baseCopyDate, setBaseCopyDate] = useState("");
   const [ganttZoom, setGanttZoom] = useState<"day" | "week" | "month">("week");
   const [chatInput, setChatInput] = useState("");
 
@@ -46,6 +49,8 @@ export default function ProjectDetail() {
   const [tResp, setTResp] = useState("");
   const [tStart, setTStart] = useState("");
   const [tEnd, setTEnd] = useState("");
+  const [tPrior, setTPrior] = useState<TaskPriority>("medium");
+  const [tStatus, setTStatus] = useState<TaskStatus>("todo");
 
   const getProfileName = (id: string) => profiles.find((p) => p.id === id)?.name || id;
   const currentUserName = authProfile?.name || user?.email || "Eu";
@@ -79,6 +84,15 @@ export default function ProjectDetail() {
           <p className="text-sm text-muted-foreground mt-1">{project.description}</p>
         </div>
         <div className="hidden sm:flex gap-2">
+          <Button variant="outline" onClick={() => {
+            setBaseCopyDate(format(new Date(), "yyyy-MM-dd"));
+            if (templates && templates.length > 0) {
+              setSelectedTemplateId(templates[0].id);
+            }
+            setCopyTemplateOpen(true);
+          }}>
+            <Copy className="w-4 h-4 mr-2" /> Copiar de Modelo
+          </Button>
           <Button variant="outline" onClick={() => setAddStageOpen(true)}>
             <Plus className="w-4 h-4 mr-2" /> Etapa
           </Button>
@@ -155,6 +169,9 @@ export default function ProjectDetail() {
                     const endD = selectedTask.endDate ? new Date(selectedTask.endDate) : null;
                     setTStart(startD && !isNaN(startD.getTime()) ? format(startD, "yyyy-MM-dd") : "");
                     setTEnd(endD && !isNaN(endD.getTime()) ? format(endD, "yyyy-MM-dd") : "");
+                    setTResp(selectedTask.responsible || "");
+                    setTPrior(selectedTask.priority || "medium");
+                    setTStatus(selectedTask.status || "todo");
                     setEditTaskMode(true);
                   }}>
                     <Pencil className="w-4 h-4 text-muted-foreground" />
@@ -173,6 +190,45 @@ export default function ProjectDetail() {
                       className="mt-1"
                     />
                   </div>
+
+                  <div>
+                    <Label>Responsável</Label>
+                    <Select value={tResp} onValueChange={setTResp}>
+                      <SelectTrigger className="mt-1.5"><SelectValue placeholder="Selecione um responsável" /></SelectTrigger>
+                      <SelectContent>
+                        {profiles.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Status</Label>
+                      <Select value={tStatus} onValueChange={(val) => setTStatus(val as TaskStatus)}>
+                        <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(["todo", "in_progress", "review", "done"] as const).map((s) => (
+                            <SelectItem key={s} value={s}>{taskStatusLabels[s]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label>Prioridade</Label>
+                      <Select value={tPrior} onValueChange={(val) => setTPrior(val as TaskPriority)}>
+                        <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(["low", "medium", "high", "urgent"] as const).map((p) => (
+                            <SelectItem key={p} value={p}>{priorityLabels[p]}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label>Data de Início</Label>
@@ -202,14 +258,20 @@ export default function ProjectDetail() {
                         name: tName, 
                         description: tDesc,
                         startDate: updatedStartDate,
-                        endDate: updatedEndDate
+                        endDate: updatedEndDate,
+                        responsible: tResp,
+                        priority: tPrior,
+                        status: tStatus,
                       });
                       setSelectedTask({ 
                         ...selectedTask, 
                         name: tName, 
                         description: tDesc,
                         startDate: updatedStartDate,
-                        endDate: updatedEndDate
+                        endDate: updatedEndDate,
+                        responsible: tResp,
+                        priority: tPrior,
+                        status: tStatus,
                       });
                       toast.success("Tarefa atualizada!");
                       setEditTaskMode(false);
@@ -350,6 +412,85 @@ export default function ProjectDetail() {
         )}
         </SheetContent>
       </Sheet>
+
+      {/* Copy Template Modal */}
+      <Dialog open={copyTemplateOpen} onOpenChange={setCopyTemplateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Copiar Etapas e Tarefas de Modelo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Selecione o Modelo</Label>
+              <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue placeholder="Selecione um modelo salvo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {templates && templates.length > 0 ? (
+                    templates.map((tpl) => (
+                      <SelectItem key={tpl.id} value={tpl.id}>
+                        {tpl.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="none" disabled>
+                      Nenhum modelo disponível
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {(!templates || templates.length === 0) && (
+                <p className="text-xs text-destructive mt-1">
+                  Nenhum modelo salvo encontrado. Salve um projeto como modelo para copiar etapas e tarefas dele.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label>Data de Início da Cópia (Referência)</Label>
+              <Input
+                type="date"
+                className="mt-1.5"
+                value={baseCopyDate}
+                onChange={(e) => setBaseCopyDate(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                As datas das tarefas do modelo serão calculadas e distribuídas a partir desta data, mantendo o mesmo intervalo de dias e a duração configurados no modelo original.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCopyTemplateOpen(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={async () => {
+                if (!selectedTemplateId || selectedTemplateId === "none") {
+                  toast.error("Por favor, selecione um modelo");
+                  return;
+                }
+                if (!baseCopyDate) {
+                  toast.error("Por favor, informe a data de início");
+                  return;
+                }
+                
+                const baseDate = new Date(`${baseCopyDate}T12:00:00`);
+                if (isNaN(baseDate.getTime())) {
+                  toast.error("Data inválida");
+                  return;
+                }
+
+                await importFromTemplate(project.id, selectedTemplateId, baseDate);
+                setCopyTemplateOpen(false);
+              }}
+              disabled={!templates || templates.length === 0}
+            >
+              Confirmar Cópia
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add Stage Modal */}
       <Dialog open={addStageOpen} onOpenChange={setAddStageOpen}>

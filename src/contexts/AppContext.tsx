@@ -69,6 +69,7 @@ interface AppContextType {
   duplicateProject: (id: string) => Promise<void>;
   saveProjectAsTemplate: (id: string) => Promise<void>;
   archiveProject: (id: string) => Promise<void>;
+  importFromTemplate: (targetProjectId: string, templateId: string, baseStartDate: Date) => Promise<void>;
   updateTask: (projectId: string, taskId: string, data: Partial<Task>) => Promise<void>;
   deleteTask: (projectId: string, taskId: string) => Promise<void>;
   updateStage: (projectId: string, stageId: string, name: string) => Promise<void>;
@@ -964,6 +965,130 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await updateProject(id, { status: "archived" as any });
     toast.success("Projeto arquivado!");
   }, [updateProject, useLocalFallback]);
+
+  const importFromTemplate = useCallback(async (targetProjectId: string, templateId: string, baseStartDate: Date) => {
+    const templateProj = [...projects, ...templates].find((p) => p.id === templateId);
+    if (!templateProj) {
+      toast.error("Template não encontrado!");
+      return;
+    }
+
+    const templateBaseDate = templateProj.startDate ? new Date(templateProj.startDate) : new Date();
+
+    if (useLocalFallback) {
+      setProjects((prev) => prev.map((p) => {
+        if (p.id !== targetProjectId) return p;
+
+        const newStages = [...p.stages];
+
+        templateProj.stages.forEach((s) => {
+          const stageId = `stage-copied-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          
+          const copiedTasks: Task[] = s.tasks.map((t) => {
+            const tStart = t.startDate ? new Date(t.startDate) : new Date();
+            const tEnd = t.endDate ? new Date(t.endDate) : new Date();
+
+            const offsetDiff = tStart.getTime() - templateBaseDate.getTime();
+            const offsetDays = Math.round(offsetDiff / (1000 * 60 * 60 * 24));
+
+            const durationDiff = tEnd.getTime() - tStart.getTime();
+            const durationDays = Math.round(durationDiff / (1000 * 60 * 60 * 24));
+
+            const newStart = new Date(baseStartDate.getTime());
+            newStart.setDate(newStart.getDate() + offsetDays);
+
+            const newEnd = new Date(newStart.getTime());
+            newEnd.setDate(newEnd.getDate() + durationDays);
+
+            return {
+              id: `task-copied-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+              name: t.name,
+              description: t.description || "",
+              responsible: t.responsible || "Ana Silva",
+              priority: t.priority || "medium",
+              status: "todo",
+              startDate: newStart,
+              endDate: newEnd,
+              comments: [],
+              dependencies: []
+            };
+          });
+
+          newStages.push({
+            id: stageId,
+            name: s.name,
+            order: newStages.length,
+            tasks: copiedTasks
+          });
+        });
+
+        return {
+          ...p,
+          stages: newStages
+        };
+      }));
+
+      toast.success("Modelo copiado com sucesso!");
+      return;
+    }
+
+    try {
+      for (let i = 0; i < templateProj.stages.length; i++) {
+        const s = templateProj.stages[i];
+        
+        const { data: newStage, error: stageErr } = await supabase
+          .from("project_stages")
+          .insert({ project_id: targetProjectId, name: s.name, order: i })
+          .select()
+          .single();
+
+        if (stageErr || !newStage) {
+          console.error("Erro ao inserir etapa:", stageErr);
+          continue;
+        }
+
+        for (const t of s.tasks) {
+          const tStart = t.startDate ? new Date(t.startDate) : new Date();
+          const tEnd = t.endDate ? new Date(t.endDate) : new Date();
+
+          const offsetDiff = tStart.getTime() - templateBaseDate.getTime();
+          const offsetDays = Math.round(offsetDiff / (1000 * 60 * 60 * 24));
+
+          const durationDiff = tEnd.getTime() - tStart.getTime();
+          const durationDays = Math.round(durationDiff / (1000 * 60 * 60 * 24));
+
+          const newStart = new Date(baseStartDate.getTime());
+          newStart.setDate(newStart.getDate() + offsetDays);
+
+          const newEnd = new Date(newStart.getTime());
+          newEnd.setDate(newEnd.getDate() + durationDays);
+
+          const start_date = newStart.toISOString().split("T")[0];
+          const end_date = newEnd.toISOString().split("T")[0];
+
+          await supabase.from("tasks").insert({
+            project_id: targetProjectId,
+            stage_id: newStage.id,
+            title: t.name,
+            description: t.description || "",
+            priority: t.priority || "medium",
+            status: "pending",
+            responsible_id: t.responsible || user?.id || null,
+            start_date,
+            end_date,
+            created_by: user?.id || null,
+          });
+        }
+      }
+
+      toast.success("Modelo copiado com sucesso!");
+      await loadProjects();
+      await syncProjectStatus(targetProjectId);
+    } catch (err) {
+      console.error("Erro ao copiar do modelo:", err);
+      toast.error("Erro ao copiar do modelo");
+    }
+  }, [projects, templates, user, useLocalFallback]);
 
   const syncProjectStatus = async (projectId: string) => {
     if (useLocalFallback) return;
@@ -1918,7 +2043,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider
       value={{
         projects, templates, transactions, accounts, receivables, categories, taskMessages, notifications, loading, profiles, setProfiles,
-        addProject, updateProject, updateProjectInvestment, duplicateProject, saveProjectAsTemplate, archiveProject, updateTask, deleteTask, updateStage, deleteStage, addStage, addTask,
+        addProject, updateProject, updateProjectInvestment, duplicateProject, saveProjectAsTemplate, archiveProject, importFromTemplate, updateTask, deleteTask, updateStage, deleteStage, addStage, addTask,
         addTransaction, updateTransaction, deleteTransaction, updateAccountBalance,
         addReceivable, updateReceivable, payReceivable, deleteReceivable, revertReceivable,
         addTaskMessage, addNotification, markNotificationRead, getProjectCode,
