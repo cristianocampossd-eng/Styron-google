@@ -10,6 +10,8 @@ import {
   ShoppingBag,
   Package,
   Cpu,
+  Users,
+  Calendar,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -21,10 +23,12 @@ import { NotificationDropdown } from "@/components/os/NotificationDropdown";
 
 const menuItems: { title: string; path: string; icon: any; module: Module }[] = [
   { title: "Dashboard", path: "/", icon: LayoutDashboard, module: "dashboard" },
+  { title: "Agenda Geral", path: "/calendar", icon: Calendar, module: "dashboard" },
   { title: "Projetos", path: "/projects", icon: FolderKanban, module: "projects" },
   { title: "Ordem de Serviço", path: "/service-orders", icon: ClipboardList, module: "service_orders" },
   { title: "Financeiro", path: "/financial", icon: Wallet, module: "financial" },
   { title: "Vendas", path: "/sales", icon: ShoppingBag, module: "sales" },
+  { title: "Clientes", path: "/clients", icon: Users, module: "sales" },
   { title: "Produtos", path: "/products", icon: Package, module: "products" },
   { title: "Sistemas", path: "/systems", icon: Cpu, module: "systems" },
   { title: "Senhas da Empresa", path: "/passwords", icon: Key, module: "passwords" },

@@ -31,13 +31,15 @@ import {
   Clock,
   ExternalLink,
   ShieldAlert,
-  Sliders
+  Sliders,
+  Users
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServiceOrders } from "@/contexts/ServiceOrderContext";
 import { useApp } from "@/contexts/AppContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { crmService } from "@/lib/crmService";
 import {
   PieChart,
   Pie,
@@ -72,6 +74,9 @@ export default function Dashboard() {
   const [dbSales, setDbSales] = useState<any[]>([]);
   const [dbProducts, setDbProducts] = useState<any[]>([]);
   const [dbSystems, setDbSystems] = useState<any[]>([]);
+  const [dbClients, setDbClients] = useState<any[]>([]);
+  const [dbActivities, setDbActivities] = useState<any[]>([]);
+  const [crmTab, setCrmTab] = useState<"general" | "crm">("general");
   const [loadingDb, setLoadingDb] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -100,19 +105,23 @@ export default function Dashboard() {
   const [startDateStr, setStartDateStr] = useState(getPastDateStr(180));
   const [endDateStr, setEndDateStr] = useState(getTodayStr());
 
-  // Fetch db sales, products, systems
+  // Fetch db sales, products, systems, clients, activities
   const loadDbData = async () => {
     setLoadingDb(true);
     try {
-      const [salesRes, prodRes, sysRes] = await Promise.all([
+      const [salesRes, prodRes, sysRes, clientsRes, activitiesRes] = await Promise.all([
         supabase.from("company_sales" as any).select("*"),
         supabase.from("company_products" as any).select("*"),
-        supabase.from("company_systems" as any).select("*")
+        supabase.from("company_systems" as any).select("*"),
+        crmService.getClients(),
+        crmService.getActivities()
       ]);
 
       if (salesRes.data) setDbSales(salesRes.data);
       if (prodRes.data) setDbProducts(prodRes.data);
       if (sysRes.data) setDbSystems(sysRes.data);
+      if (clientsRes) setDbClients(clientsRes);
+      if (activitiesRes) setDbActivities(activitiesRes);
     } catch (e) {
       console.error("Error loading optional dashboard data", e);
     } finally {
@@ -347,6 +356,133 @@ export default function Dashboard() {
   const osInProgressCount = useMemo(() => {
     return filteredOrders.filter((o) => o.status !== "completed" && o.status !== "archived").length;
   }, [filteredOrders]);
+
+  // --- CLIENTS & CRM METRICS CALCULATIONS ---
+
+  const CRM_COLORS = ["#3B82F6", "#10B981", "#6366F1", "#F59E0B", "#EC4899", "#8B5CF6", "#14B8A6"];
+  const FUNNEL_COLORS = ["#F59E0B", "#10B981", "#3B82F6", "#4F46E5", "#EF4444"];
+
+  // Date match helper for client registrations and sales
+  const isCrmWithinDateRange = (dateInput: any) => {
+    if (selectedPeriod === "Total") return true;
+    if (!dateInput) return false;
+    let dateStr = "";
+    if (typeof dateInput === "string") {
+      dateStr = dateInput.substring(0, 10);
+    } else {
+      const d = new Date(dateInput);
+      if (isNaN(d.getTime())) return false;
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const r = String(d.getDate()).padStart(2, "0");
+      dateStr = `${y}-${m}-${r}`;
+    }
+    return dateStr >= startDateStr && dateStr <= endDateStr;
+  };
+
+  // Clientes Totais
+  const clientsTotalCount = useMemo(() => {
+    return dbClients.length;
+  }, [dbClients]);
+
+  // Novos Clientes (registered inside current selected period)
+  const clientsNewCount = useMemo(() => {
+    return dbClients.filter(c => isCrmWithinDateRange(c.created_at)).length;
+  }, [dbClients, startDateStr, endDateStr, selectedPeriod]);
+
+  // Clientes Ativos
+  const clientsActiveCount = useMemo(() => {
+    return dbClients.filter(c => c.status === "active").length;
+  }, [dbClients]);
+
+  // Helper matching sales for conversion status
+  const matchedWonSales = useMemo(() => {
+    return dbSales.filter(sale => sale.stage === "closed_won" && isCrmWithinDateRange(sale.created_at));
+  }, [dbSales, startDateStr, endDateStr, selectedPeriod]);
+
+  // Clientes Convertidos (with won sales within period or in general who have been won)
+  const clientsConvertedCount = useMemo(() => {
+    return dbClients.filter(c => {
+      // client matches a closed_won sale if the sale specifies client_id, client_name, or company_name
+      return dbSales.some(sale => sale.stage === "closed_won" && (
+        (sale.client_id && sale.client_id === c.id) ||
+        (sale.client_name && sale.client_name.toLowerCase() === c.contato_nome.toLowerCase()) ||
+        (sale.company_name && sale.company_name.toLowerCase() === c.empresa.toLowerCase())
+      ));
+    }).length;
+  }, [dbClients, dbSales]);
+
+  // Ticket Médio client sales calculations
+  const crmAverageTicket = useMemo(() => {
+    const totalWon = matchedWonSales.reduce((sum, sale) => sum + (sale.total_price || 0), 0);
+    return matchedWonSales.length > 0 ? totalWon / matchedWonSales.length : 0;
+  }, [matchedWonSales]);
+
+  // Clientes por Segmento Chart Data
+  const crmSegmentsData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    dbClients.forEach(c => {
+      const segment = c.segmento || "Não Informado";
+      counts[segment] = (counts[segment] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [dbClients]);
+
+  // Clientes por Origem Chart Data
+  const crmOriginsData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    dbClients.forEach(c => {
+      const origin = c.origem_lead || "Não Informado";
+      counts[origin] = (counts[origin] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [dbClients]);
+
+  // Conversão por etapa do funil (mapped sales count in current period for each pipeline stage)
+  const crmFunnelData = useMemo(() => {
+    const stages = {
+      prospecting: { name: "Prospecção", value: 0 },
+      negotiation: { name: "Negociação", value: 0 },
+      proposal: { name: "Fechamento", value: 0 },
+      closed_won: { name: "Ganho", value: 0 },
+      closed_lost: { name: "Perdido", value: 0 },
+    };
+    dbSales.forEach(sale => {
+      if (isCrmWithinDateRange(sale.created_at)) {
+        const stageKey = sale.stage as keyof typeof stages;
+        if (stages[stageKey]) {
+          stages[stageKey].value += 1;
+        }
+      }
+    });
+    return Object.values(stages);
+  }, [dbSales, startDateStr, endDateStr, selectedPeriod]);
+
+  // Evolução de Clientes (group new client registration monthly in the current year)
+  const crmMonthlyEvolutionData = useMemo(() => {
+    const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+    const counts = Array(12).fill(0);
+    const thisYear = new Date().getFullYear();
+
+    dbClients.forEach(c => {
+      if (c.created_at) {
+        const d = new Date(c.created_at);
+        if (d.getFullYear() === thisYear) {
+          const m = d.getMonth();
+          counts[m] += 1;
+        }
+      }
+    });
+
+    return months.map((name, idx) => ({
+      name,
+      "Novos Clientes": counts[idx]
+    }));
+  }, [dbClients]);
 
   const previousPeriodKpis = useMemo(() => {
     try {
@@ -888,11 +1024,11 @@ export default function Dashboard() {
     return {
       total: totalSalesCount,
       series: [
-        { stage: "Prospecção (Abertura inicial)", count: counts.prospecting, percentage: getPercentage(counts.prospecting), color: "#3B82F6", width: getWidthPercent(counts.prospecting, 0) },
-        { stage: "Negociação ativa", count: counts.negotiation, percentage: getPercentage(counts.negotiation), color: "#6366F1", width: getWidthPercent(counts.negotiation, 1) },
-        { stage: "Proposta Enviada", count: counts.proposal, percentage: getPercentage(counts.proposal), color: "#8E91F6", width: getWidthPercent(counts.proposal, 2) },
-        { stage: "Acordo Fechado (Ganha)", count: counts.closed_won, percentage: getPercentage(counts.closed_won), color: "#10B981", width: getWidthPercent(counts.closed_won, 3) },
-        { stage: "Descartada (Perdida)", count: counts.closed_lost, percentage: getPercentage(counts.closed_lost), color: "#EF4444", width: getWidthPercent(counts.closed_lost, 4) }
+        { stage: "Prospecção", count: counts.prospecting, percentage: getPercentage(counts.prospecting), color: "#3B82F6", width: getWidthPercent(counts.prospecting, 0) },
+        { stage: "Negociação", count: counts.negotiation, percentage: getPercentage(counts.negotiation), color: "#6366F1", width: getWidthPercent(counts.negotiation, 1) },
+        { stage: "Fechamento", count: counts.proposal, percentage: getPercentage(counts.proposal), color: "#8E91F6", width: getWidthPercent(counts.proposal, 2) },
+        { stage: "Ganho", count: counts.closed_won, percentage: getPercentage(counts.closed_won), color: "#10B981", width: getWidthPercent(counts.closed_won, 3) },
+        { stage: "Perdido", count: counts.closed_lost, percentage: getPercentage(counts.closed_lost), color: "#EF4444", width: getWidthPercent(counts.closed_lost, 4) }
       ]
     };
   }, [dbSales, systemFilter, startDateStr, endDateStr]);
@@ -900,7 +1036,9 @@ export default function Dashboard() {
   // --- PRODUCTS SIDEBAR ---
   const productsSummary = useMemo(() => {
     const activeProducts = dbProducts.filter((p: any) => systemFilter === "all" || p.system_id === systemFilter);
-    const activeSales = dbSales.filter((s: any) => systemFilter === "all" || s.system_id === systemFilter);
+    const activeSales = dbSales.filter(
+      (s: any) => (systemFilter === "all" || s.system_id === systemFilter) && s.stage === "closed_won"
+    );
 
     const productCounts: { [key: string]: number } = {};
     activeSales.forEach((s: any) => {
@@ -940,12 +1078,14 @@ export default function Dashboard() {
     const activeSales = dbSales.filter((s: any) => systemFilter === "all" || s.system_id === systemFilter);
     
     const wonSales = activeSales.filter((s: any) => s.stage === "closed_won");
+    const lostSales = activeSales.filter((s: any) => s.stage === "closed_lost");
     const totalVal = wonSales.reduce((sum: number, s: any) => sum + Number(s.total_price || 0), 0);
     
     const activeOpportunities = activeSales.filter((s: any) => s.stage !== "closed_won" && s.stage !== "closed_lost").length;
     
-    const conversionRate = activeSales.length > 0 
-      ? `${Math.round((wonSales.length / activeSales.length) * 100)}%`
+    const closedSalesCount = wonSales.length + lostSales.length;
+    const conversionRate = closedSalesCount > 0 
+      ? `${Math.round((wonSales.length / closedSalesCount) * 100)}%`
       : "0%";
       
     const ticketAverage = wonSales.length > 0 ? totalVal / wonSales.length : 0;
@@ -1159,8 +1299,35 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
-      {/* ----------------- UPPER SUMMARY KPI CARDS LINE ----------------- */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5" id="dashboard-kpis-container">
+      {/* ----------------- DASHBOARD VIEW SELECTION TABS ----------------- */}
+      <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-900 border rounded-xl max-w-sm mb-5 text-slate-800" id="crm-dashboard-selector-tabs">
+        <button
+          onClick={() => setCrmTab("general")}
+          className={`flex-1 py-1.5 px-3 text-xs font-black rounded-lg transition-all cursor-pointer ${
+            crmTab === "general"
+              ? "bg-white shadow-sm text-slate-800 dark:bg-slate-950 dark:text-white"
+              : "text-slate-505 hover:text-slate-700"
+          }`}
+        >
+          Painel Operacional & Financeiro
+        </button>
+        <button
+          onClick={() => setCrmTab("crm")}
+          className={`flex-1 py-1.5 px-3 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+            crmTab === "crm"
+              ? "bg-white shadow-sm text-slate-800 dark:bg-slate-950 dark:text-white"
+              : "text-slate-505 hover:text-slate-700"
+          }`}
+        >
+          <Users className="w-3.5 h-3.5 text-primary" />
+          <span>Painel CRM & Clientes</span>
+        </button>
+      </div>
+
+      {crmTab === "general" ? (
+        <>
+          {/* ----------------- UPPER SUMMARY KPI CARDS LINE ----------------- */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5" id="dashboard-kpis-container">
         
         {/* Card 1: Receita Total */}
         {canAccess("dash_kpi_finance") && (
@@ -2048,7 +2215,7 @@ export default function Dashboard() {
               <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
                 <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Conversão</span>
                 <h5 className="font-mono font-black text-slate-850 text-sm mt-0.5">{salesIndicators.conversionRate}</h5>
-                <span className="text-[9px] text-slate-405 font-bold uppercase block mt-1 tracking-wider">Geral</span>
+                <span className="text-[9px] text-slate-405 font-bold uppercase block mt-1 tracking-wider">Ganhas / Fechadas</span>
               </div>
 
               <div className="bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
@@ -2059,13 +2226,21 @@ export default function Dashboard() {
 
             </div>
 
-            <div className="border-t border-slate-100 pt-3 text-center">
+            <div className="border-t border-slate-100 pt-3 flex flex-col sm:flex-row justify-center items-center gap-2">
               <button
                 onClick={() => navigate("/sales")}
-                className="inline-flex items-center gap-1 text-xs font-bold text-primary hover:text-primary/70 transition-colors pr-1 cursor-pointer"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary/70 transition-colors cursor-pointer"
               >
-                <span>Ver painel de vendas</span>
+                <span>Painel de Vendas</span>
                 <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+              <div className="hidden sm:block text-slate-300">|</div>
+              <button
+                onClick={() => navigate("/clients")}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 transition-colors cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Gerenciar CRM de Clientes</span>
               </button>
             </div>
           </div>
@@ -2073,6 +2248,286 @@ export default function Dashboard() {
         </div>
 
       </div>
+      </>
+      ) : (
+        <div className="space-y-6">
+          {/* --- KPI SUMMARY ROW FOR CRM --- */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 animate-in fade-in duration-300" id="crm-summary-kpis-grid">
+            {/* Card 1: Total Clientes */}
+            <div
+              onClick={() => navigate("/clients")}
+              className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 dark:bg-slate-950 dark:border-slate-800"
+            >
+              <div className="flex justify-between items-start">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total de Clientes</p>
+                <div className="p-2.5 rounded-full bg-slate-50 text-slate-500 dark:bg-slate-900">
+                  <Users className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <h4 className="text-2.5xl font-black text-slate-800 tracking-tight dark:text-white">{clientsTotalCount}</h4>
+                <div className="text-slate-400 text-[11px] mt-1 font-semibold hover:text-primary transition-colors flex items-center gap-1">
+                  <span>Ver todos os cadastros</span>
+                  <ArrowRight className="w-3" />
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Novos Clientes */}
+            <div
+              onClick={() => navigate("/clients?metric=none")}
+              className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 dark:bg-slate-950 dark:border-slate-800"
+            >
+              <div className="flex justify-between items-start">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Novos Clientes</p>
+                <div className="p-2.5 rounded-full bg-blue-50 text-blue-500 dark:bg-blue-950/40">
+                  <Activity className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <h4 className="text-2.5xl font-black text-blue-600 tracking-tight dark:text-blue-400">{clientsNewCount}</h4>
+                <div className="text-slate-450 text-[11px] mt-1 font-semibold">
+                  Cadastros no período
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Clientes Ativos */}
+            <div
+              onClick={() => navigate("/clients?status=active")}
+              className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 dark:bg-slate-950 dark:border-slate-800"
+            >
+              <div className="flex justify-between items-start">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Clientes Ativos</p>
+                <div className="p-2.5 rounded-full bg-emerald-50 text-emerald-500 dark:bg-emerald-950/40">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <h4 className="text-2.5xl font-black text-emerald-600 tracking-tight dark:text-emerald-400">{clientsActiveCount}</h4>
+                <div className="text-slate-400 text-[11px] mt-1 font-semibold hover:text-emerald-500 transition-colors flex items-center gap-1">
+                  <span>Clique para filtrar ativos</span>
+                  <ArrowRight className="w-3" />
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4: Clientes Convertidos */}
+            <div
+              onClick={() => navigate("/clients?metric=converted")}
+              className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 dark:bg-slate-950 dark:border-slate-800"
+            >
+              <div className="flex justify-between items-start">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Clientes Convertidos</p>
+                <div className="p-2.5 rounded-full bg-indigo-50 text-indigo-500 dark:bg-indigo-950/40">
+                  <Award className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <h4 className="text-2.5xl font-black text-indigo-600 tracking-tight dark:text-indigo-400">{clientsConvertedCount}</h4>
+                <div className="text-slate-400 text-[11px] mt-1 font-semibold hover:text-indigo-500 transition-colors flex items-center gap-1">
+                  <span>Filtrar vendas ganhas</span>
+                  <ArrowRight className="w-3" />
+                </div>
+              </div>
+            </div>
+
+            {/* Card 5: Ticket Médio */}
+            <div
+              onClick={() => navigate("/sales")}
+              className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md cursor-pointer transition-all duration-200 hover:-translate-y-1 dark:bg-slate-950 dark:border-slate-800"
+            >
+              <div className="flex justify-between items-start">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ticket Médio (CRM)</p>
+                <div className="p-2.5 rounded-full bg-amber-50 text-amber-500 dark:bg-amber-950/40">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <h4 className="text-2.5xl font-black text-amber-600 tracking-tight dark:text-amber-400">{fmt(crmAverageTicket)}</h4>
+                <div className="text-slate-450 text-[11px] mt-1 font-semibold">
+                  Média de negócios ganhos
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* --- BENTO SECTION FOR GRAPHICS --- */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom duration-500" id="crm-bento-graphics-grid">
+            
+            {/* Chart 1: Clientes por Segmento */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs dark:bg-slate-950 dark:border-slate-800">
+              <div className="mb-4">
+                <h3 className="font-bold text-base text-slate-800 dark:text-white">Clientes por Segmento</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Distribuição por setor comercial de atuação</p>
+              </div>
+              <div className="h-64 mt-4">
+                {crmSegmentsData.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-slate-400 text-xs font-medium">
+                    Sem registros de mercado cadastrados.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={crmSegmentsData} layout="vertical" margin={{ top: 10, right: 10, left: 30, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                      <XAxis type="number" tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11 }} />
+                      <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11, fontWeight: 550 }} width={80} />
+                      <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #E2E8F0", fontSize: "11px" }} />
+                      <Bar 
+                        dataKey="value" 
+                        fill="#3B82F6" 
+                        radius={[0, 4, 4, 0]} 
+                        barSize={16}
+                        onClick={(data) => {
+                          if (data && data.name) {
+                            navigate(`/clients?segment=${encodeURIComponent(data.name)}`);
+                            toast.success(`Segmento selecionado: ${data.name}`);
+                          }
+                        }}
+                        className="cursor-pointer"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 text-center mt-2 font-medium italic">Clique nas barras para abrir a lista setorial</p>
+            </div>
+
+            {/* Chart 2: Clientes por Origem */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs dark:bg-slate-950 dark:border-slate-800">
+              <div className="mb-4">
+                <h3 className="font-bold text-base text-slate-800 dark:text-white">Clientes por Origem</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Canais geradores de novas oportunidades</p>
+              </div>
+              <div className="h-64 mt-4 flex items-center">
+                {crmOriginsData.length === 0 ? (
+                  <div className="flex items-center justify-center w-full h-full text-slate-400 text-xs font-medium">
+                    Sem canais de prospecção definidos.
+                  </div>
+                ) : (
+                  <div className="relative w-full h-full flex flex-row items-center justify-between">
+                    <div className="w-1/2 h-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={crmOriginsData}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={55}
+                            outerRadius={75}
+                            paddingAngle={3}
+                            onClick={(data) => {
+                              if (data && data.name) {
+                                navigate(`/clients?origin=${encodeURIComponent(data.name)}`);
+                                toast.success(`Canal de origem selecionado: ${data.name}`);
+                              }
+                            }}
+                            className="cursor-pointer"
+                          >
+                            {crmOriginsData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={CRM_COLORS[index % CRM_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value) => [`${value} clientes`, "Quantidade"]} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="w-1/2 space-y-1.5 pl-4 max-h-56 overflow-y-auto" id="origins-legenda-scroll">
+                      {crmOriginsData.map((d, index) => (
+                        <div 
+                          key={d.name} 
+                          onClick={() => navigate(`/clients?origin=${encodeURIComponent(d.name)}`)}
+                          className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 p-1 rounded transition-colors text-slate-600 dark:text-slate-300"
+                        >
+                          <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: CRM_COLORS[index % CRM_COLORS.length] }} />
+                          <div className="flex-1 text-[11px] font-semibold truncate">{d.name}</div>
+                          <div className="text-slate-400 text-xs font-black">{d.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 text-center mt-2 font-medium italic">Clique nos canais ou setores para detalhar relatórios</p>
+            </div>
+
+            {/* Chart 3: Conversão por Etapa do Funil */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs dark:bg-slate-950 dark:border-slate-800">
+              <div className="mb-4">
+                <h3 className="font-bold text-base text-slate-800 dark:text-white">Conversão por Etapa do Funil</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Quantidade acumulada por estágio do pipeline</p>
+              </div>
+              <div className="h-64 mt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={crmFunnelData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                    <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11, fontWeight: 550 }} />
+                    <YAxis tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11 }} />
+                    <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #E2E8F0", fontSize: "11px" }} />
+                    <Bar 
+                      dataKey="value" 
+                      fill="#4F46E5" 
+                      radius={[4, 4, 0, 0]} 
+                      barSize={24}
+                      onClick={() => {
+                        navigate("/sales");
+                        toast.success("Redirecionando para o Funil de Oportunidades");
+                      }}
+                      className="cursor-pointer"
+                    >
+                      {crmFunnelData.map((entry, index) => (
+                        <Cell key={`cell-f-${index}`} fill={FUNNEL_COLORS[index % FUNNEL_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[10px] text-slate-400 text-center mt-2 font-medium italic">Consulte o painel de vendas interativo para movimentações de estágio</p>
+            </div>
+
+            {/* Chart 4: Evolução de Clientes */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs dark:bg-slate-950 dark:border-slate-800">
+              <div className="mb-4">
+                <h3 className="font-bold text-base text-slate-800 dark:text-white">Evolução de Clientes</h3>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">Progresso de novas contas registradas no ano</p>
+              </div>
+              <div className="h-64 mt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={crmMonthlyEvolutionData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorClients" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.2}/>
+                        <stop offset="95%" stopColor="#10B981" stopOpacity={0.0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                    <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11, fontWeight: 550 }} />
+                    <YAxis tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11 }} />
+                    <Tooltip contentStyle={{ borderRadius: "12px", border: "1px solid #E2E8F0", fontSize: "11px" }} />
+                    <Area 
+                      type="monotone" 
+                      dataKey="Novos Clientes" 
+                      stroke="#10B981" 
+                      strokeWidth={2}
+                      fillOpacity={1} 
+                      fill="url(#colorClients)"
+                      onClick={() => {
+                        navigate("/clients");
+                        toast.success("Ver carteira de clientes");
+                      }}
+                      className="cursor-pointer"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[10px] text-slate-400 text-center mt-2 font-medium italic">Clique no gráfico para auditar toda a carteira comercial de leads</p>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

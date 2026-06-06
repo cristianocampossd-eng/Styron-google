@@ -116,10 +116,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Helper to check if Supabase has required tables
   const checkSupabaseOfflineOrMissing = async (): Promise<boolean> => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    if (!supabaseUrl || supabaseUrl === "https://placeholder.supabase.co" || supabaseUrl.trim() === "") {
+      console.warn("Supabase VITE_SUPABASE_URL is missing or placeholder. Falling back to LocalStorage.");
+      return true;
+    }
+
     try {
       const { error } = await supabase.from("profiles").select("id").limit(1);
-      if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table') || error.message?.includes('schema cache'))) {
-        console.warn("Supabase tables are missing. Using LocalStorage fallback.");
+      if (error) {
+        console.warn("Supabase connection check returned an error. Using LocalStorage fallback.", error.message);
         return true;
       }
       return false;

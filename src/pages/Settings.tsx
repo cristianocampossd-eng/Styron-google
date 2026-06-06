@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Building2, KeyRound, Users, Key } from "lucide-react";
+import { Building2, KeyRound, Users, Key, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect } from "react";
@@ -12,6 +12,7 @@ export default function Settings() {
   const tabs = [
     { path: "/settings/company", label: "Empresa", icon: Building2, module: "settings" as const },
     { path: "/settings/accounts", label: "Usuários", icon: Users, module: "settings" as const },
+    { path: "/settings/integrations", label: "Integrações", icon: Calendar, module: "settings" as const },
     { path: "/settings/password", label: "Minha Senha", icon: KeyRound, module: "profile" as const },
     { path: "/settings/passwords", label: "Senhas da Empresa", icon: Key, module: "passwords" as const },
   ];
