@@ -822,7 +822,13 @@ export default function Dashboard() {
     const categorySums: { [key: string]: { name: string; value: number } } = {};
     
     filteredTransactions.forEach((t) => {
+      // Must be an expense transaction
+      if (t.type !== "expense") return;
+
       const cat = categories.find((c) => c.id === t.categoryId);
+      // Skip if the category is configured as income
+      if (cat && cat.type === "income") return;
+
       const catName = cat ? cat.name : "Desconhecido";
       if (!categorySums[catName]) {
         categorySums[catName] = { name: catName, value: 0 };
@@ -833,7 +839,7 @@ export default function Dashboard() {
     const rawSeries = Object.values(categorySums);
     const totalVal = rawSeries.reduce((s, x) => s + x.value, 0);
 
-    const colorPalette = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#6B7280"];
+    const colorPalette = ["#EF4444", "#F59E0B", "#3B82F6", "#8B5CF6", "#EC4899", "#14B8A6", "#10B981", "#6B7280"];
     
     const series = rawSeries.map((item, idx) => ({
       name: item.name,
@@ -844,7 +850,7 @@ export default function Dashboard() {
 
     if (series.length === 0) {
       return [
-        { name: "Sem Lançamentos", value: 0, color: "#6B7280", percentage: 0 }
+        { name: "Sem Despesas", value: 0, color: "#6B7280", percentage: 0 }
       ];
     }
 
@@ -1686,10 +1692,10 @@ export default function Dashboard() {
           {canAccess("dash_chart_systems") && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="finance-third-row">
               
-              {/* Financeiro por Categoria Donut */}
+              {/* Despesas por Categoria Donut */}
             <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs flex flex-col justify-between" id="card-financeiro-categoria">
               <div>
-                <h3 className="font-bold text-base text-slate-800">Financeiro por Categoria</h3>
+                <h3 className="font-bold text-base text-slate-800">Despesas por Categoria</h3>
                 <p className="text-xs text-slate-400 font-medium">Este mês</p>
                 
                 <div className="flex flex-col sm:flex-row items-center gap-4 py-4">
