@@ -25,7 +25,7 @@ export interface ReceivablePayable {
   type: "income" | "expense";
   status: "pending" | "paid" | "overdue";
   isRecurring: boolean;
-  recurrence: "once" | "monthly" | "weekly" | "yearly";
+  recurrence: "once" | "monthly" | "weekly" | "yearly" | "quarterly";
   value: number;
   projectId: string | null;
   categoryId: string;
@@ -1746,6 +1746,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (item.recurrence === "daily") nextDueDate.setDate(nextDueDate.getDate() + 1);
         else if (item.recurrence === "weekly") nextDueDate.setDate(nextDueDate.getDate() + 7);
         else if (item.recurrence === "monthly") nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+        else if (item.recurrence === "quarterly") nextDueDate.setMonth(nextDueDate.getMonth() + 3);
         else if (item.recurrence === "yearly") nextDueDate.setFullYear(nextDueDate.getFullYear() + 1);
 
         const newRec: ReceivablePayable = {
@@ -1800,6 +1801,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (item.recurrence === "daily") nextDueDate.setDate(nextDueDate.getDate() + 1);
           else if (item.recurrence === "weekly") nextDueDate.setDate(nextDueDate.getDate() + 7);
           else if (item.recurrence === "monthly") nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+          else if (item.recurrence === "quarterly") nextDueDate.setMonth(nextDueDate.getMonth() + 3);
           else if (item.recurrence === "yearly") nextDueDate.setFullYear(nextDueDate.getFullYear() + 1);
           
           await addReceivable({

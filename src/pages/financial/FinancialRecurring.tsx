@@ -15,7 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
 const statusLabels: Record<string, string> = { pending: "Pendente", paid: "Pago", overdue: "Vencido" };
 const statusColors: Record<string, string> = { pending: "bg-warning/10 text-warning", paid: "bg-success/10 text-success", overdue: "bg-destructive/10 text-destructive" };
-const recLabels: Record<string, string> = { once: "Única", daily: "Diária", monthly: "Mensal", weekly: "Semanal", yearly: "Anual" };
+const recLabels: Record<string, string> = { once: "Única", daily: "Diária", monthly: "Mensal", weekly: "Semanal", yearly: "Anual", quarterly: "Trimestral" };
 
 export default function FinancialRecurring() {
   const { receivables, addReceivable, updateReceivable, payReceivable, deleteReceivable, revertReceivable, projects, accounts, categories, getProjectCode } = useApp();
@@ -299,6 +299,7 @@ export default function FinancialRecurring() {
               <SelectItem value="daily">Diária</SelectItem>
               <SelectItem value="weekly">Semanal</SelectItem>
               <SelectItem value="monthly">Mensal</SelectItem>
+              <SelectItem value="quarterly">Trimestral</SelectItem>
               <SelectItem value="yearly">Anual</SelectItem>
             </SelectContent>
           </Select>
@@ -410,6 +411,7 @@ export default function FinancialRecurring() {
                       <SelectItem value="daily">Diária</SelectItem>
                       <SelectItem value="weekly">Semanal</SelectItem>
                       <SelectItem value="monthly">Mensal</SelectItem>
+                      <SelectItem value="quarterly">Trimestral</SelectItem>
                       <SelectItem value="yearly">Anual</SelectItem>
                     </SelectContent>
                   </Select>

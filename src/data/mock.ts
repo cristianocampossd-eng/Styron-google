@@ -80,7 +80,7 @@ export interface RecurringItem {
   id: string;
   name: string;
   value: number;
-  frequency: "monthly" | "weekly" | "yearly";
+  frequency: "monthly" | "weekly" | "yearly" | "quarterly";
   type: "income" | "expense";
   categoryId: string;
   accountId: string;
