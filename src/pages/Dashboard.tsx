@@ -207,6 +207,16 @@ export default function Dashboard() {
 
   // --- DYNAMIC FILTER ENGINE ---
 
+  const getSaleEffectiveDate = (sale: any) => {
+    if (sale.stage === "closed_won" && sale.notes) {
+      const closedMatch = sale.notes.match(/\[closed_at:(\d{4}-\d{2}-\d{2})\]/);
+      if (closedMatch) {
+        return closedMatch[1];
+      }
+    }
+    return sale.created_at || sale.updated_at;
+  };
+
   // Date match helper
   const isWithinDateRange = (dateInput: any) => {
     if (selectedPeriod === "Total") return true;
@@ -409,7 +419,7 @@ export default function Dashboard() {
 
   // Helper matching sales for conversion status
   const matchedWonSales = useMemo(() => {
-    return dbSales.filter(sale => sale.stage === "closed_won" && isCrmWithinDateRange(sale.created_at));
+    return dbSales.filter(sale => sale.stage === "closed_won" && isCrmWithinDateRange(getSaleEffectiveDate(sale)));
   }, [dbSales, startDateStr, endDateStr, selectedPeriod]);
 
   // Clientes Convertidos (with won sales within period or in general who have been won)
@@ -464,7 +474,7 @@ export default function Dashboard() {
       closed_lost: { name: "Perdido", value: 0 },
     };
     dbSales.forEach(sale => {
-      if (isCrmWithinDateRange(sale.created_at)) {
+      if (isCrmWithinDateRange(getSaleEffectiveDate(sale))) {
         const stageKey = sale.stage as keyof typeof stages;
         if (stages[stageKey]) {
           stages[stageKey].value += 1;
@@ -1016,7 +1026,8 @@ export default function Dashboard() {
 
     const filteredSales = dbSales.filter((s: any) => {
       if (systemFilter !== "all" && s.system_id !== systemFilter) return false;
-      if (s.created_at && !isWithinDateRange(s.created_at)) return false;
+      const effectiveDate = getSaleEffectiveDate(s);
+      if (effectiveDate && !isWithinDateRange(effectiveDate)) return false;
       return true;
     });
 

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./AuthContext";
 import { toast } from "sonner";
@@ -81,6 +81,7 @@ interface AppContextType {
   updateTransaction: (id: string, updated: Partial<Transaction>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
   updateAccountBalance: (accountId: string, delta: number) => Promise<void>;
+  updateAccount: (accountId: string, updated: Partial<Account>) => Promise<void>;
   addReceivable: (r: Omit<ReceivablePayable, "id">) => Promise<void>;
   updateReceivable: (id: string, data: Partial<ReceivablePayable>) => Promise<void>;
   payReceivable: (id: string, paymentData: { discount: number; interest: number; accountId: string; categoryId: string; projectId: string | null; systemId: string | null }) => Promise<void>;
@@ -96,6 +97,24 @@ interface AppContextType {
   deleteReceivable: (id: string) => Promise<void>;
   revertReceivable: (id: string) => Promise<void>;
   useLocalFallback: boolean;
+  
+  systems: any[];
+  loadSystems: () => Promise<void>;
+  addSystem: (sys: { name: string; initial_balance?: number }) => Promise<void>;
+  updateSystem: (id: string, sys: { name: string; initial_balance?: number }) => Promise<void>;
+  deleteSystem: (id: string) => Promise<void>;
+  
+  products: any[];
+  loadProducts: () => Promise<void>;
+  addProduct: (prod: any) => Promise<void>;
+  updateProduct: (id: string, prod: any) => Promise<void>;
+  deleteProduct: (id: string) => Promise<void>;
+  
+  sales: any[];
+  loadSales: () => Promise<void>;
+  addSale: (sale: any) => Promise<any>;
+  updateSale: (id: string, sale: any) => Promise<any>;
+  deleteSale: (id: string) => Promise<any>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -105,7 +124,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<Project[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [rawAccounts, setRawAccounts] = useState<Account[]>([]);
+
+  const accounts = useMemo(() => {
+    const base = rawAccounts.filter((a) => a.id !== "total-balance-account");
+    
+    const baseWithHistoryBalances = base.map((acc) => {
+      const totalIncome = transactions
+        .filter((t) => (t.accountId === acc.id && t.type === "income") || (t.destinationAccountId === acc.id && t.type === "transfer"))
+        .reduce((sum, t) => sum + (t.value || 0), 0);
+      const totalExpense = transactions
+        .filter((t) => t.accountId === acc.id && (t.type === "expense" || t.type === "withdrawal" || t.type === "transfer"))
+        .reduce((sum, t) => sum + (t.value || 0), 0);
+      return {
+        ...acc,
+        balance: totalIncome - totalExpense
+      };
+    });
+
+    const totalBalance = baseWithHistoryBalances.reduce((sum, acc) => sum + acc.balance, 0);
+
+    return [
+      ...baseWithHistoryBalances,
+      { id: "total-balance-account", name: "Saldo Total", balance: totalBalance }
+    ];
+  }, [rawAccounts, transactions]);
+
   const [receivables, setReceivables] = useState<ReceivablePayable[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [taskMessages, setTaskMessages] = useState<TaskMessage[]>([]);
@@ -113,6 +157,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [profiles, setProfiles] = useState<{ id: string; name: string; email: string | null; phone?: string | null; blocked?: boolean; role?: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [useLocalFallback, setUseLocalFallback] = useState(false);
+  const [systems, setSystems] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [sales, setSales] = useState<any[]>([]);
 
   // Helper to check if Supabase has required tables
   const checkSupabaseOfflineOrMissing = async (): Promise<boolean> => {
@@ -152,7 +199,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const baseAccs = JSON.parse(localAccs);
     const totalBalance = baseAccs.reduce((sum: any, acc: any) => sum + acc.balance, 0);
-    setAccounts([...baseAccs, { id: "total-balance-account", name: "Saldo Total", balance: totalBalance }]);
+    setRawAccounts([...baseAccs, { id: "total-balance-account", name: "Saldo Total", balance: totalBalance }]);
 
 
     // 3. Projects
@@ -255,6 +302,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...n,
       date: new Date(n.date)
     })));
+
+    // 8. Systems
+    let localSys = localStorage.getItem("styron_systems") || "[]";
+    setSystems(JSON.parse(localSys));
+
+    // 9. Products
+    let localProds = localStorage.getItem("styron_products") || "[]";
+    setProducts(JSON.parse(localProds));
+
+    // 10. Sales
+    let localSales = localStorage.getItem("styron_sales") || "[]";
+    setSales(JSON.parse(localSales));
   }, [user, profile]);
 
   // Sync state to localStorage if fallback mode is active
@@ -342,6 +401,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           loadReceivables().catch((err) => console.error("Erro ao carregar contas a ver/receber do Supabase:", err)),
           loadNotifications().catch((err) => console.error("Erro ao carregar notificações do Supabase:", err)),
           loadProfiles().catch((err) => console.error("Erro ao carregar perfis do Supabase:", err)),
+          loadSystems().catch((err) => console.error("Erro ao carregar sistemas do Supabase:", err)),
+          loadProducts().catch((err) => console.error("Erro ao carregar produtos do Supabase:", err)),
+          loadSales().catch((err) => console.error("Erro ao carregar vendas do Supabase:", err)),
         ]);
       }
     } catch (e) {
@@ -359,6 +421,269 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProfiles(data.filter((p: any) => p.email !== "styronoficial@gmail.com" && p.email !== "styron@gmail.com"));
     }
   }
+
+  async function loadSystems() {
+    if (useLocalFallback) {
+      const data = localStorage.getItem("styron_systems");
+      setSystems(data ? JSON.parse(data) : []);
+      return;
+    }
+    try {
+      const { data, error } = await supabase.from("company_systems").select("*").order("name", { ascending: true });
+      if (error) throw error;
+      setSystems(data || []);
+      localStorage.setItem("styron_systems", JSON.stringify(data || []));
+    } catch (e) {
+      console.warn("Error loading systems. Using localStorage fallback.", e);
+      const data = localStorage.getItem("styron_systems");
+      setSystems(data ? JSON.parse(data) : []);
+    }
+  }
+
+  const addSystem = useCallback(async (sys: { name: string; initial_balance?: number }) => {
+    if (useLocalFallback) {
+      const newSys = {
+        id: `sys-${Date.now()}`,
+        name: sys.name,
+        initial_balance: sys.initial_balance || 0,
+      };
+      setSystems((prev) => {
+        const next = [...prev, newSys];
+        localStorage.setItem("styron_systems", JSON.stringify(next));
+        return next;
+      });
+      toast.success("Sistema cadastrado com sucesso!");
+      return;
+    }
+    const { error } = await supabase.from("company_systems").insert(sys);
+    if (error) {
+      console.error("Error creating system:", error);
+      toast.error("Erro ao cadastrar sistema: " + error.message);
+      throw error;
+    }
+    toast.success("Sistema cadastrado com sucesso!");
+    await loadSystems();
+  }, [useLocalFallback]);
+
+  const updateSystem = useCallback(async (id: string, sys: { name: string; initial_balance?: number }) => {
+    if (useLocalFallback) {
+      setSystems((prev) => {
+        const next = prev.map((s) => s.id === id ? { ...s, ...sys } : s);
+        localStorage.setItem("styron_systems", JSON.stringify(next));
+        return next;
+      });
+      toast.success("Sistema atualizado com sucesso!");
+      return;
+    }
+    const { error } = await supabase.from("company_systems").update(sys).eq("id", id);
+    if (error) {
+      console.error("Error updating system:", error);
+      toast.error("Erro ao atualizar sistema: " + error.message);
+      throw error;
+    }
+    toast.success("Sistema atualizado com sucesso!");
+    await loadSystems();
+  }, [useLocalFallback]);
+
+  const deleteSystem = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      setSystems((prev) => {
+        const next = prev.filter((s) => s.id !== id);
+        localStorage.setItem("styron_systems", JSON.stringify(next));
+        return next;
+      });
+      toast.success("Sistema excluído com sucesso!");
+      return;
+    }
+    const { error } = await supabase.from("company_systems").delete().eq("id", id);
+    if (error) {
+      console.error("Error deleting system:", error);
+      toast.error("Erro ao excluir sistema: " + error.message);
+      throw error;
+    }
+    toast.success("Sistema excluído com sucesso!");
+    await loadSystems();
+  }, [useLocalFallback]);
+
+  async function loadProducts() {
+    if (useLocalFallback) {
+      const data = localStorage.getItem("styron_products");
+      setProducts(data ? JSON.parse(data) : []);
+      return;
+    }
+    try {
+      const { data, error } = await supabase.from("company_products").select("*").order("name", { ascending: true });
+      if (error) throw error;
+      setProducts(data || []);
+      localStorage.setItem("styron_products", JSON.stringify(data || []));
+    } catch (e) {
+      console.warn("Error loading products. Using localStorage fallback.", e);
+      const data = localStorage.getItem("styron_products");
+      setProducts(data ? JSON.parse(data) : []);
+    }
+  }
+
+  const addProduct = useCallback(async (prod: any) => {
+    if (useLocalFallback) {
+      const newProd = {
+        ...prod,
+        id: `prod-${Date.now()}`,
+      };
+      setProducts((prev) => {
+        const next = [...prev, newProd];
+        localStorage.setItem("styron_products", JSON.stringify(next));
+        return next;
+      });
+      toast.success("Produto cadastrado com sucesso!");
+      return;
+    }
+    let { error } = await supabase.from("company_products").insert(prod);
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      const { system_id, ...cleanProd } = prod;
+      const retryRes = await supabase.from("company_products").insert(cleanProd);
+      error = retryRes.error;
+    }
+    if (error) {
+      toast.error("Erro ao cadastrar produto: " + error.message);
+      throw error;
+    }
+    toast.success("Produto cadastrado com sucesso!");
+    await loadProducts();
+  }, [useLocalFallback]);
+
+  const updateProduct = useCallback(async (id: string, prod: any) => {
+    if (useLocalFallback) {
+      setProducts((prev) => {
+        const next = prev.map((p) => p.id === id ? { ...p, ...prod } : p);
+        localStorage.setItem("styron_products", JSON.stringify(next));
+        return next;
+      });
+      toast.success("Produto atualizado com sucesso!");
+      return;
+    }
+    let { error } = await supabase.from("company_products").update(prod).eq("id", id);
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      const { system_id, ...cleanProd } = prod;
+      const retryRes = await supabase.from("company_products").update(cleanProd).eq("id", id);
+      error = retryRes.error;
+    }
+    if (error) {
+      toast.error("Erro ao atualizar produto: " + error.message);
+      throw error;
+    }
+    toast.success("Produto atualizado com sucesso!");
+    await loadProducts();
+  }, [useLocalFallback]);
+
+  const deleteProduct = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      setProducts((prev) => {
+        const next = prev.filter((p) => p.id !== id);
+        localStorage.setItem("styron_products", JSON.stringify(next));
+        return next;
+      });
+      toast.success("Produto excluído com sucesso!");
+      return;
+    }
+    const { error } = await supabase.from("company_products").delete().eq("id", id);
+    if (error) {
+      toast.error("Erro ao excluir produto: " + error.message);
+      throw error;
+    }
+    toast.success("Produto excluído com sucesso!");
+    await loadProducts();
+  }, [useLocalFallback]);
+
+  async function loadSales() {
+    if (useLocalFallback) {
+      const data = localStorage.getItem("styron_sales");
+      setSales(data ? JSON.parse(data) : []);
+      return;
+    }
+    try {
+      const { data, error } = await supabase.from("company_sales").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      setSales(data || []);
+      localStorage.setItem("styron_sales", JSON.stringify(data || []));
+    } catch (e) {
+      console.warn("Error loading sales. Using localStorage fallback.", e);
+      const data = localStorage.getItem("styron_sales");
+      setSales(data ? JSON.parse(data) : []);
+    }
+  }
+
+  const addSale = useCallback(async (sale: any) => {
+    if (useLocalFallback) {
+      const newSale = {
+        ...sale,
+        id: `sale-${Date.now()}`,
+        created_at: new Date().toISOString(),
+      };
+      setSales((prev) => {
+        const next = [newSale, ...prev];
+        localStorage.setItem("styron_sales", JSON.stringify(next));
+        return next;
+      });
+      toast.success("Venda registrada com sucesso!");
+      return { data: [newSale], error: null };
+    }
+    let res = await supabase.from("company_sales").insert(sale).select();
+    let error = res.error;
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      const { system_id, client_id, ...cleanSale } = sale;
+      res = await supabase.from("company_sales").insert(cleanSale).select();
+      error = res.error;
+    }
+    if (error) {
+      toast.error("Erro ao registrar venda: " + error.message);
+      throw error;
+    }
+    await loadSales();
+    return res;
+  }, [useLocalFallback]);
+
+  const updateSale = useCallback(async (id: string, sale: any) => {
+    if (useLocalFallback) {
+      setSales((prev) => {
+        const next = prev.map((s) => s.id === id ? { ...s, ...sale } : s);
+        localStorage.setItem("styron_sales", JSON.stringify(next));
+        return next;
+      });
+      toast.success("Venda atualizada com sucesso!");
+      return { error: null };
+    }
+    let { error } = await supabase.from("company_sales").update(sale).eq("id", id);
+    if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
+      const { system_id, client_id, ...cleanSale } = sale;
+      const retryRes = await supabase.from("company_sales").update(cleanSale).eq("id", id);
+      error = retryRes.error;
+    }
+    if (error) {
+      toast.error("Erro ao atualizar venda: " + error.message);
+      throw error;
+    }
+    await loadSales();
+    return { error: null };
+  }, [useLocalFallback]);
+
+  const deleteSale = useCallback(async (id: string) => {
+    if (useLocalFallback) {
+      setSales((prev) => {
+        const next = prev.filter((s) => s.id !== id);
+        localStorage.setItem("styron_sales", JSON.stringify(next));
+        return next;
+      });
+      toast.success("Venda excluída com sucesso!");
+      return { error: null };
+    }
+    const { error } = await supabase.from("company_sales").delete().eq("id", id);
+    if (error) {
+      toast.error("Erro ao excluir venda: " + error.message);
+      throw error;
+    }
+    await loadSales();
+    return { error: null };
+  }, [useLocalFallback]);
 
   async function loadProjects() {
     const { data: projectsData } = await supabase
@@ -474,6 +799,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const refMatch = desc.match(/\[ref:([^:\s\]]+)\]/);
           const receivableId = refMatch ? refMatch[1] : null;
 
+          const destMatch = desc.match(/\[dest:([^:\s\]]+)\]/);
+          const destinationAccountId = destMatch ? destMatch[1] : null;
+
           // Parse format: [due:YYYY-MM-DD]
           let dueDate: Date | undefined = undefined;
           const dueMatch = desc.match(/\[due:(\d{4}-\d{2}-\d{2})\]/);
@@ -500,7 +828,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const cleanDesc = desc
             .replace(/\s*\[sys:[^\]]+\]/, "")
             .replace(/\s*\[ref:[^\]]+\]/, "")
-            .replace(/\s*\[due:[^\]]+\]/, "");
+            .replace(/\s*\[due:[^\]]+\]/, "")
+            .replace(/\s*\[dest:[^\]]+\]/, "");
 
           return {
             id: t.id,
@@ -516,6 +845,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             receivableId,
             systemId,
             affectsSystemBalance,
+            destinationAccountId,
           };
         })
       );
@@ -525,9 +855,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   async function loadAccounts() {
     const { data } = await supabase.from("financial_accounts").select("*").order("created_at");
     if (data) {
-      const baseAccounts = data.map((a: any) => ({ id: a.id, name: a.name, balance: Number(a.balance) }));
+      const baseAccounts = data.map((a: any) => ({ 
+        id: a.id, 
+        name: a.name, 
+        balance: Number(a.balance),
+        agency: a.agency,
+        account_number: a.account_number
+      }));
       const totalBalance = baseAccounts.reduce((sum, acc) => sum + acc.balance, 0);
-      setAccounts([...baseAccounts, { id: "total-balance-account", name: "Saldo Total", balance: totalBalance }]);
+      setRawAccounts([...baseAccounts, { id: "total-balance-account", name: "Saldo Total", balance: totalBalance }]);
     }
   }
 
@@ -1393,6 +1729,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       affectsSystemBalance?: boolean | null;
       dueDate?: Date | null;
       receivableId?: string | null;
+      destinationAccountId?: string | null;
     }
   ): string => {
     let desc = currentDesc || "";
@@ -1407,18 +1744,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     
     const dueMatch = desc.match(/\[due:(\d{4}-\d{2}-\d{2})\]/);
     const existingDueDateStr = dueMatch ? dueMatch[1] : null;
+
+    const destMatch = desc.match(/\[dest:([^:\s\]]+)\]/);
+    const existingDestId = destMatch ? destMatch[1] : null;
     
     // 2. Clear out all existing tags
     desc = desc
       .replace(/\s*\[sys:[^\]]+\]/g, "")
       .replace(/\s*\[ref:[^\]]+\]/g, "")
       .replace(/\s*\[due:[^\]]+\]/g, "")
+      .replace(/\s*\[dest:[^\]]+\]/g, "")
       .trim();
       
     // 3. Select final values
     const finalRef = updates.receivableId !== undefined ? updates.receivableId : existingRefId;
     const finalSystemId = updates.systemId !== undefined ? updates.systemId : existingSystemId;
     const finalAffects = updates.affectsSystemBalance !== undefined ? updates.affectsSystemBalance : existingAffects;
+    const finalDest = updates.destinationAccountId !== undefined ? updates.destinationAccountId : existingDestId;
     
     let finalDueDateStr = existingDueDateStr;
     if (updates.dueDate !== undefined) {
@@ -1441,6 +1783,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (finalDueDateStr) {
       desc = `${desc} [due:${finalDueDateStr}]`.trim();
     }
+    if (finalDest) {
+      desc = `${desc} [dest:${finalDest}]`.trim();
+    }
     
     return desc;
   };
@@ -1456,12 +1801,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         value: t.value,
         date: t.date || new Date(),
         dueDate: t.dueDate,
-        description: t.description || ""
+        description: t.description || "",
+        destinationAccountId: t.destinationAccountId || null,
       };
       setTransactions((prev) => [newTx, ...prev]);
       if (t.accountId) {
         const delta = t.type === "income" ? t.value : -t.value;
-        setAccounts((prev) => prev.map((a) => a.id === t.accountId ? { ...a, balance: a.balance + delta } : a));
+        setRawAccounts((prev) => prev.map((a) => a.id === t.accountId ? { ...a, balance: a.balance + delta } : a));
+      }
+      if (t.type === "transfer" && t.destinationAccountId) {
+        setRawAccounts((prev) => prev.map((a) => a.id === t.destinationAccountId ? { ...a, balance: a.balance + t.value } : a));
       }
       toast.success("Movimentação registrada com sucesso!");
       return;
@@ -1472,6 +1821,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       affectsSystemBalance: t.affectsSystemBalance,
       dueDate: t.dueDate,
       receivableId: t.receivableId || (t.description ? t.description.match(/\[ref:([^:\s\]]+)\]/)?.[1] : null),
+      destinationAccountId: t.destinationAccountId || null,
     });
 
     const txPayload: any = {
@@ -1529,7 +1879,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       systemId: updated.systemId !== undefined ? updated.systemId : (existingTx?.systemId || null),
       affectsSystemBalance: updated.affectsSystemBalance !== undefined ? updated.affectsSystemBalance : (existingTx?.affectsSystemBalance || false),
       dueDate: updated.dueDate !== undefined ? updated.dueDate : (existingTx?.dueDate || null),
-      receivableId: existingTx?.receivableId || prevRawDesc.match(/\[ref:([^:\s\]]+)\]/)?.[1] || null
+      receivableId: existingTx?.receivableId || prevRawDesc.match(/\[ref:([^:\s\]]+)\]/)?.[1] || null,
+      destinationAccountId: updated.destinationAccountId !== undefined ? updated.destinationAccountId : (existingTx?.destinationAccountId || null),
     });
 
     const txPayload: any = {
@@ -1588,19 +1939,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateAccountBalance = useCallback(async (accountId: string, delta: number) => {
     if (useLocalFallback) {
-      setAccounts((prev) => prev.map((a) => a.id === accountId ? { ...a, balance: a.balance + delta } : a));
+      setRawAccounts((prev) => prev.map((a) => a.id === accountId ? { ...a, balance: a.balance + delta } : a));
       return;
     }
 
-    const acc = accounts.find((a) => a.id === accountId);
-    if (!acc) return;
+    const { data, error: fetchError } = await supabase
+      .from("financial_accounts")
+      .select("balance")
+      .eq("id", accountId)
+      .single();
+
+    if (fetchError || !data) {
+      console.error("Erro ao obter saldo mais recente da conta:", fetchError);
+      return;
+    }
+
+    const currentBalance = Number(data.balance);
+    const newBalance = currentBalance + delta;
+
     const { error } = await supabase
       .from("financial_accounts")
-      .update({ balance: acc.balance + delta })
+      .update({ balance: newBalance })
       .eq("id", accountId);
-    if (error) { toast.error("Erro ao atualizar saldo"); return; }
+
+    if (error) { 
+      toast.error("Erro ao atualizar saldo"); 
+      console.error("Erro no update de saldo:", error);
+      return; 
+    }
     await loadAccounts();
-  }, [accounts, useLocalFallback]);
+  }, [useLocalFallback]);
+
+  const updateAccount = useCallback(async (accountId: string, updated: Partial<Account>) => {
+    if (useLocalFallback) {
+      setRawAccounts((prev) => prev.map((a) => a.id === accountId ? { ...a, ...updated } : a));
+      toast.success("Conta atualizada com sucesso!");
+      return;
+    }
+
+    const payload: any = {};
+    if (updated.name !== undefined) payload.name = updated.name;
+    if (updated.balance !== undefined) payload.balance = updated.balance;
+    if (updated.agency !== undefined) payload.agency = updated.agency;
+    if (updated.account_number !== undefined) payload.account_number = updated.account_number;
+
+    const { error } = await supabase
+      .from("financial_accounts")
+      .update(payload)
+      .eq("id", accountId);
+    
+    if (error) { 
+      toast.error(`Erro ao atualizar conta: ${error.message}`); 
+      return; 
+    }
+    toast.success("Conta atualizada com sucesso!");
+    await loadAccounts();
+  }, [useLocalFallback]);
 
   const addReceivable = useCallback(async (r: Omit<ReceivablePayable, "id">) => {
     if (useLocalFallback) {
@@ -1738,7 +2132,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTransactions((prev) => [newTx, ...prev]);
 
       const delta = item.type === "income" ? finalValue : -finalValue;
-      setAccounts((prev) => prev.map((a) => a.id === paymentData.accountId ? { ...a, balance: a.balance + delta } : a));
+      setRawAccounts((prev) => prev.map((a) => a.id === paymentData.accountId ? { ...a, balance: a.balance + delta } : a));
 
       if (item.isRecurring) {
         // Generate next recurring item first
@@ -2064,7 +2458,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (useLocalFallback) {
       if (matchingTx) {
         const delta = matchingTx.type === "income" ? -matchingTx.value : matchingTx.value;
-        setAccounts((prev) => prev.map((a) => a.id === matchingTx.accountId ? { ...a, balance: a.balance + delta } : a));
+        setRawAccounts((prev) => prev.map((a) => a.id === matchingTx.accountId ? { ...a, balance: a.balance + delta } : a));
         setTransactions((prev) => prev.filter((t) => t.id !== matchingTx.id));
       }
       setReceivables((prev) => prev.map((r) => r.id === id ? { ...r, status: "pending" } : r));
@@ -2125,11 +2519,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       value={{
         projects, templates, transactions, accounts, receivables, categories, taskMessages, notifications, loading, profiles, setProfiles,
         addProject, updateProject, updateProjectInvestment, duplicateProject, saveProjectAsTemplate, deleteTemplate, archiveProject, importFromTemplate, updateTask, deleteTask, updateStage, deleteStage, addStage, addTask,
-        addTransaction, updateTransaction, deleteTransaction, updateAccountBalance,
+        addTransaction, updateTransaction, deleteTransaction, updateAccountBalance, updateAccount,
         addReceivable, updateReceivable, payReceivable, deleteReceivable, revertReceivable,
         addTaskMessage, addNotification, markNotificationRead, getProjectCode,
         refreshProjects, refreshTransactions, refreshAccounts, addCategory, deleteCategory,
         useLocalFallback,
+        systems, loadSystems, addSystem, updateSystem, deleteSystem,
+        products, loadProducts, addProduct, updateProduct, deleteProduct,
+        sales, loadSales, addSale, updateSale, deleteSale,
       }}
     >
       {children}

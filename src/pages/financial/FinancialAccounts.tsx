@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,25 +14,66 @@ const fmt = (v: number) => new Intl.NumberFormat("pt-BR", { style: "currency", c
 
 export default function FinancialAccounts() {
   const [selected, setSelected] = useState<string | null>(null);
-  const { accounts, transactions, refreshAccounts } = useApp();
+  const { accounts, transactions, refreshAccounts, updateAccount } = useApp();
   const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [agency, setAgency] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [balance, setBalance] = useState("");
+  const [editName, setEditName] = useState("");
+  const [editAgency, setEditAgency] = useState("");
+  const [editAccountNumber, setEditAccountNumber] = useState("");
+  const [editBalance, setEditBalance] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const startEdit = (acc: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingAccountId(acc.id);
+    setEditName(acc.name);
+    setEditAgency(acc.agency || "");
+    setEditAccountNumber(acc.account_number || "");
+    setEditBalance(String(acc.balance));
+    setEditOpen(true);
+  };
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editName.trim()) { toast.error("Informe o nome"); return; }
+    setSaving(true);
+    await updateAccount(editingAccountId!, {
+      name: editName.trim(),
+      agency: editAgency || "",
+      account_number: editAccountNumber || "",
+      balance: editBalance ? Number(editBalance) : 0,
+    });
+    setSaving(false);
+    setEditOpen(false);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { toast.error("Informe o nome"); return; }
     setSaving(true);
-    const { error } = await supabase.from("financial_accounts").insert({
+    const { data, error } = await supabase.from("financial_accounts").insert({
       name: name.trim(),
       agency: agency || "",
       account_number: accountNumber || "",
       balance: balance ? Number(balance) : 0,
-    });
+    }).select();
+    
+    if (!error && data?.[0] && balance && Number(balance) > 0) {
+      await supabase.from("financial_transactions").insert({
+        type: "income",
+        account_id: data[0].id,
+        value: Number(balance),
+        description: "Saldo Inicial",
+        transaction_date: new Date().toISOString(),
+      });
+    }
+
     setSaving(false);
     if (error) { toast.error("Erro ao criar conta"); return; }
     toast.success("Conta criada!");
@@ -62,7 +103,9 @@ export default function FinancialAccounts() {
   };
 
   const account = accounts.find((a) => a.id === selected);
-  const accTransactions = selected ? transactions.filter((t) => t.accountId === selected) : [];
+  const accTransactions = selected
+    ? transactions.filter((t) => t.accountId === selected || t.destinationAccountId === selected)
+    : [];
 
   if (account) {
     return (
@@ -71,14 +114,24 @@ export default function FinancialAccounts() {
           <Button variant="ghost" onClick={() => setSelected(null)} className="gap-2">
             <ArrowLeft className="w-4 h-4" /> Voltar
           </Button>
-          <Button 
-            variant="destructive" 
-            size="sm" 
-            onClick={(e) => deleteAccount(account.id, e)}
-            className="gap-2"
-          >
-            <Trash2 className="w-4 h-4" /> Excluir Conta
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(e) => startEdit(account, e)}
+              className="gap-2"
+            >
+              <Pencil className="w-4 h-4" /> Editar Conta
+            </Button>
+            <Button 
+              variant="destructive" 
+              size="sm" 
+              onClick={(e) => deleteAccount(account.id, e)}
+              className="gap-2"
+            >
+              <Trash2 className="w-4 h-4" /> Excluir Conta
+            </Button>
+          </div>
         </div>
         <div className="bg-card rounded-xl border p-5">
           <h3 className="text-lg font-semibold">{account.name}</h3>
@@ -91,17 +144,33 @@ export default function FinancialAccounts() {
             <h4 className="text-sm font-medium text-muted-foreground">Movimentações</h4>
           </div>
           <div className="divide-y">
-            {accTransactions.map((t) => (
-              <div key={t.id} className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{t.description}</p>
-                  <p className="text-xs text-muted-foreground">{format(t.date, "dd/MM/yyyy")}</p>
+            {accTransactions.map((t) => {
+              const isIncomeForThisAccount =
+                t.type === "income" ||
+                (t.type === "transfer" && t.destinationAccountId === selected);
+              
+              const sign = isIncomeForThisAccount ? "+" : "-";
+              const colorClass = isIncomeForThisAccount ? "text-success" : "text-destructive";
+
+              return (
+                <div key={t.id} className="p-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {t.description}
+                      {t.type === "transfer" && (
+                        <span className="text-xs text-muted-foreground ml-1.5 font-normal block sm:inline">
+                          ({accounts.find((a) => a.id === t.accountId)?.name || "Origem"} → {t.destinationAccountId ? (accounts.find((a) => a.id === t.destinationAccountId)?.name || "Destino") : <span className="text-amber-500 font-semibold">Sem destino ⚠️</span>})
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{format(t.date, "dd/MM/yyyy")}</p>
+                  </div>
+                  <span className={cn("font-medium text-sm", colorClass)}>
+                    {sign}{fmt(t.value)}
+                  </span>
                 </div>
-                <span className={cn("font-medium text-sm", t.type === "income" ? "text-success" : "text-destructive")}>
-                  {t.type === "income" ? "+" : "-"}{fmt(t.value)}
-                </span>
-              </div>
-            ))}
+              );
+            })}
             {accTransactions.length === 0 && (
               <p className="p-4 text-sm text-muted-foreground text-center">Nenhuma movimentação.</p>
             )}
@@ -136,12 +205,11 @@ export default function FinancialAccounts() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       {accounts.map((acc) => {
-        const accTransactionsForTotals = transactions.filter((t) => t.accountId === acc.id);
-        const totalIncome = accTransactionsForTotals
-          .filter((t) => t.type === "income")
+        const totalIncome = transactions
+          .filter((t) => (t.accountId === acc.id && t.type === "income") || (t.destinationAccountId === acc.id && t.type === "transfer"))
           .reduce((sum, t) => sum + (t.value || 0), 0);
-        const totalExpense = accTransactionsForTotals
-          .filter((t) => t.type === "expense" || t.type === "withdrawal" || t.type === "transfer")
+        const totalExpense = transactions
+          .filter((t) => t.accountId === acc.id && (t.type === "expense" || t.type === "withdrawal" || t.type === "transfer"))
           .reduce((sum, t) => sum + (t.value || 0), 0);
 
         return (
@@ -157,15 +225,26 @@ export default function FinancialAccounts() {
                 <div className="flex justify-between items-start">
                   <p className={cn("text-sm font-medium", acc.id === "total-balance-account" ? "text-primary" : "text-muted-foreground")}>{acc.name}</p>
                   {acc.id !== "total-balance-account" && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="w-7 h-7 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-50 md:opacity-0 group-hover:opacity-100 transition-all"
-                    onClick={(e) => deleteAccount(acc.id, e)}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="w-7 h-7 rounded-full text-muted-foreground hover:text-primary hover:bg-primary/5 md:opacity-0 group-hover:opacity-100 transition-all"
+                        onClick={(e) => startEdit(acc, e)}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="w-7 h-7 rounded-full text-muted-foreground hover:text-red-500 hover:bg-red-50 md:opacity-0 group-hover:opacity-100 transition-all"
+                        onClick={(e) => deleteAccount(acc.id, e)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   )}
                 </div>
                 <p className={cn(
@@ -210,6 +289,34 @@ export default function FinancialAccounts() {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={saving}>{saving ? "Salvando..." : "Criar"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Editar conta</DialogTitle></DialogHeader>
+          <form onSubmit={saveEdit} className="space-y-4 py-2">
+            <div><Label>Nome</Label><Input className="mt-1.5" value={editName} onChange={(e) => setEditName(e.target.value)} required /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Agência</Label><Input className="mt-1.5" value={editAgency} onChange={(e) => setEditAgency(e.target.value)} /></div>
+              <div><Label>Conta</Label><Input className="mt-1.5" value={editAccountNumber} onChange={(e) => setEditAccountNumber(e.target.value)} /></div>
+            </div>
+            <div>
+              <Label>Saldo atual</Label>
+              <Input
+                type="number"
+                step="0.01"
+                className="mt-1.5"
+                value={editBalance}
+                onChange={(e) => setEditBalance(e.target.value)}
+                placeholder="0,00"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Salvando..." : "Salvar"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

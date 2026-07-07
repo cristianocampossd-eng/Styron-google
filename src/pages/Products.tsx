@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useApp } from "@/contexts/AppContext";
 import { toast } from "sonner";
 import {
   Package,
@@ -41,8 +42,16 @@ export interface CompanyProduct {
 
 export default function Products() {
   const { isAdmin } = useAuth();
-  const [products, setProducts] = useState<CompanyProduct[]>([]);
-  const [systems, setSystems] = useState<{ id: string; name: string }[]>([]);
+  const { 
+    products, 
+    loadProducts, 
+    addProduct, 
+    updateProduct, 
+    deleteProduct, 
+    systems, 
+    loadSystems 
+  } = useApp();
+
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"card" | "list">("list");
@@ -63,32 +72,13 @@ export default function Products() {
   const [newCategoryName, setNewCategoryName] = useState("");
 
   useEffect(() => {
-    loadProducts();
-    loadSystems();
-  }, []);
-
-  const loadSystems = async () => {
-    try {
-      const { data } = await supabase.from("company_systems").select("id, name").order("name", { ascending: true });
-      if (data) setSystems(data);
-    } catch (err) {
-      console.error("Erro ao carregar sistemas:", err);
-    }
-  };
-
-  const loadProducts = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.from("company_products").select("*").order("name", { ascending: true });
-      if (error) throw error;
-      setProducts(data || []);
-    } catch (err: any) {
-      console.error("Erro ao carregar produtos:", err);
-      toast.error("Erro ao atualizar catálogo de produtos.");
-    } finally {
+    const initLoad = async () => {
+      setLoading(true);
+      await Promise.all([loadProducts(), loadSystems()]);
       setLoading(false);
-    }
-  };
+    };
+    initLoad();
+  }, []);
 
   const categories = Array.from(
     new Set([
@@ -118,45 +108,20 @@ export default function Products() {
       sku: calculatedSku,
       category: finalCategory,
       status,
+      system_id: systemId === "none" ? null : systemId,
     };
 
     try {
       if (editingId) {
-        let { error } = await supabase.from("company_products").update({
-          ...basePayload,
-          system_id: systemId === "none" ? null : systemId,
-        }).eq("id", editingId);
-        
-        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
-          console.warn("Retrying update without system_id column");
-          const retryRes = await supabase.from("company_products").update(basePayload).eq("id", editingId);
-          error = retryRes.error;
-        }
-        
-        if (error) throw error;
-        toast.success("Produto atualizado com sucesso.");
+        await updateProduct(editingId, basePayload);
       } else {
-        let { error } = await supabase.from("company_products").insert({
-          ...basePayload,
-          system_id: systemId === "none" ? null : systemId,
-        });
-        
-        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
-          console.warn("Retrying insert without system_id column");
-          const retryRes = await supabase.from("company_products").insert(basePayload);
-          error = retryRes.error;
-        }
-        
-        if (error) throw error;
-        toast.success("Produto cadastrado com sucesso.");
+        await addProduct(basePayload);
       }
 
       setIsDialogOpen(false);
       clearForm();
-      loadProducts();
     } catch (err) {
       console.error(err);
-      toast.error("Erro ao salvar produto no banco de dados.");
     }
   };
 
@@ -177,12 +142,9 @@ export default function Products() {
   const handleDelete = async (id: string, prodName: string) => {
     if (confirm(`Remover permanentemente o produto "${prodName}" do catálogo?`)) {
       try {
-        const { error } = await supabase.from("company_products").delete().eq("id", id);
-        if (error) throw error;
-        toast.success("Produto removido.");
-        loadProducts();
+        await deleteProduct(id);
       } catch (err) {
-        toast.error("Erro ao excluir produto.");
+        console.error("Erro ao deletar produto:", err);
       }
     }
   };

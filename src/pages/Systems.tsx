@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useApp } from "@/contexts/AppContext";
 import { toast } from "sonner";
 import {
   Cpu,
@@ -33,7 +34,14 @@ export interface CompanySystem {
 
 export default function Systems() {
   const { isAdmin } = useAuth();
-  const [systems, setSystems] = useState<CompanySystem[]>([]);
+  const {
+    systems,
+    loadSystems,
+    addSystem,
+    updateSystem,
+    deleteSystem,
+  } = useApp();
+
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"card" | "list">("list");
@@ -45,22 +53,13 @@ export default function Systems() {
   const [initialBalance, setInitialBalance] = useState<number>(0);
 
   useEffect(() => {
-    loadSystems();
-  }, []);
-
-  const loadSystems = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.from("company_systems").select("*").order("name", { ascending: true });
-      if (error) throw error;
-      setSystems(data || []);
-    } catch (err: any) {
-      console.error("Erro ao carregar sistemas:", err);
-      toast.error("Erro ao atualizar lista de sistemas.");
-    } finally {
+    const initLoad = async () => {
+      setLoading(true);
+      await loadSystems();
       setLoading(false);
-    }
-  };
+    };
+    initLoad();
+  }, []);
 
   const handleSaveSystem = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,21 +75,15 @@ export default function Systems() {
 
     try {
       if (editingId) {
-        const { error } = await supabase.from("company_systems").update(payload).eq("id", editingId);
-        if (error) throw error;
-        toast.success("Sistema atualizado com sucesso.");
+        await updateSystem(editingId, payload);
       } else {
-        const { error } = await supabase.from("company_systems").insert(payload);
-        if (error) throw error;
-        toast.success("Sistema cadastrado com sucesso.");
+        await addSystem(payload);
       }
 
       setIsDialogOpen(false);
       clearForm();
-      loadSystems();
     } catch (err) {
       console.error(err);
-      toast.error("Erro ao salvar sistema no banco de dados.");
     }
   };
 
@@ -104,12 +97,9 @@ export default function Systems() {
   const handleDelete = async (id: string, sysName: string) => {
     if (confirm(`Remover permanentemente o sistema "${sysName}"?`)) {
       try {
-        const { error } = await supabase.from("company_systems").delete().eq("id", id);
-        if (error) throw error;
-        toast.success("Sistema removido.");
-        loadSystems();
+        await deleteSystem(id);
       } catch (err) {
-        toast.error("Erro ao excluir sistema.");
+        console.error("Erro ao deletar sistema:", err);
       }
     }
   };

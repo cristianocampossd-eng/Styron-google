@@ -12,13 +12,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-async function checkColumns() {
-  const { data, error } = await supabase.from('financial_transactions').select('due_date').limit(1);
-  if (error) {
-    console.log("❌ Error selecting due_date from financial_transactions:", error.message, error.code);
-  } else {
-    console.log("✅ Column due_date exists in financial_transactions! Returned:", data);
-  }
+async function checkData() {
+  const accountsRes = await supabase.from('financial_accounts').select('id, name, balance');
+  console.log("--- ACCOUNTS ---");
+  console.log(JSON.stringify(accountsRes.data, null, 2));
+
+  const txsRes = await supabase.from('financial_transactions').select('id, description, account_id, value, transaction_date, type').limit(15);
+  console.log("--- TRANSACTIONS SAMPLES ---");
+  console.log(JSON.stringify(txsRes.data, null, 2));
 }
 
-checkColumns();
+checkData();

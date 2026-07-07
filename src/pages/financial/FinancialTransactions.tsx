@@ -38,6 +38,7 @@ export default function FinancialTransactions() {
 
   const [editType, setEditType] = useState<string>("income");
   const [editAccount, setEditAccount] = useState("");
+  const [editDestAccount, setEditDestAccount] = useState("");
   const [editCategory, setEditCategory] = useState("");
   const [editProject, setEditProject] = useState("general");
   const [editValue, setEditValue] = useState("");
@@ -46,6 +47,7 @@ export default function FinancialTransactions() {
   const [editAffectsSystem, setEditAffectsSystem] = useState(false);
   const [editDate, setEditDate] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState<any | null>(null);
 
   useEffect(() => {
     supabase.from("company_systems").select("id, name").order("name", { ascending: true }).then(({ data }) => {
@@ -83,7 +85,7 @@ export default function FinancialTransactions() {
     return true;
   });
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const value = parseFloat(formValue);
     if (!value || !formAccount) return;
     const txn = {
@@ -98,27 +100,38 @@ export default function FinancialTransactions() {
       description: formDesc || typeLabels[formType],
       systemId: formSystem === "none" ? null : formSystem,
       affectsSystemBalance: formAffectsSystem,
+      destinationAccountId: formType === "transfer" ? (formDestAccount || null) : null,
     };
-    addTransaction(txn);
-    if (formType === "income") updateAccountBalance(formAccount, value);
-    if (formType === "expense") updateAccountBalance(formAccount, -value);
-    if (formType === "withdrawal") updateAccountBalance(formAccount, -value);
-    if (formType === "transfer") {
-      updateAccountBalance(formAccount, -value);
-      if (formDestAccount) updateAccountBalance(formDestAccount, value);
+    
+    try {
+      await addTransaction(txn);
+      if (formType === "income") {
+        await updateAccountBalance(formAccount, value);
+      } else if (formType === "expense" || formType === "withdrawal") {
+        await updateAccountBalance(formAccount, -value);
+      } else if (formType === "transfer") {
+        await updateAccountBalance(formAccount, -value);
+        if (formDestAccount) {
+          await updateAccountBalance(formDestAccount, value);
+        }
+      }
+      toast.success("Movimentação registrada com sucesso!");
+      setOpen(false);
+      setFormValue(""); 
+      setFormDesc("");
+      setFormSystem("none");
+      setFormAffectsSystem(false);
+    } catch (err: any) {
+      console.error("Erro ao registrar movimentação:", err);
+      toast.error("Erro ao registrar movimentação. Tente novamente.");
     }
-    toast.success("Movimentação registrada!");
-    setOpen(false);
-    setFormValue(""); 
-    setFormDesc("");
-    setFormSystem("none");
-    setFormAffectsSystem(false);
   };
 
   const handleRowClick = (t: any) => {
     setSelectedTx(t);
     setEditType(t.type);
     setEditAccount(t.accountId || "");
+    setEditDestAccount(t.destinationAccountId || "");
     setEditCategory(t.categoryId || "none");
     setEditProject(t.projectId || "general");
     setEditValue(String(t.value));
@@ -158,6 +171,11 @@ export default function FinancialTransactions() {
         await updateAccountBalance(oldAccountId, revertDelta);
       }
 
+      // Revert old transfer destination account impact too
+      if (oldType === "transfer" && selectedTx.destinationAccountId) {
+        await updateAccountBalance(selectedTx.destinationAccountId, -oldValue);
+      }
+
       // 2. Apply new transaction impact on balance
       let applyDelta = 0;
       if (editType === "income") {
@@ -168,6 +186,11 @@ export default function FinancialTransactions() {
 
       if (applyDelta !== 0 && editAccount) {
         await updateAccountBalance(editAccount, applyDelta);
+      }
+
+      // Apply new transfer destination account impact too
+      if (editType === "transfer" && editDestAccount) {
+        await updateAccountBalance(editDestAccount, value);
       }
 
       // 3. Update the record
@@ -182,6 +205,7 @@ export default function FinancialTransactions() {
         dueDate: editDueDate ? new Date(editDueDate + "T12:00:00") : undefined,
         systemId: editSystem === "none" ? null : editSystem,
         affectsSystemBalance: editAffectsSystem,
+        destinationAccountId: editType === "transfer" ? (editDestAccount || null) : null,
       });
 
       setDetailsOpen(false);
@@ -192,10 +216,14 @@ export default function FinancialTransactions() {
     }
   };
 
-  const handleDeleteTransaction = async (tx: any, e: React.MouseEvent) => {
+  const handleDeleteTransaction = (tx: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm("Deseja realmente excluir esta movimentação?")) return;
+    setDeleteConfirmOpen(tx);
+  };
 
+  const confirmDeleteTransaction = async () => {
+    if (!deleteConfirmOpen) return;
+    const tx = deleteConfirmOpen;
     try {
       // Revert transaction impact on balance
       const oldType = tx.type;
@@ -213,19 +241,23 @@ export default function FinancialTransactions() {
         await updateAccountBalance(oldAccountId, revertDelta);
       }
 
+      // Revert transfer destination account balance as well
+      if (oldType === "transfer" && tx.destinationAccountId) {
+        await updateAccountBalance(tx.destinationAccountId, -oldValue);
+      }
+
       await deleteTransaction(tx.id);
-      toast.success("Movimentação excluída!");
+      setDeleteConfirmOpen(null);
     } catch (err) {
       console.error("Erro ao excluir movimentação:", err);
       toast.error("Erro ao excluir movimentação.");
     }
   };
 
-  const handleEditDelete = async () => {
+  const handleEditDelete = () => {
     if (!selectedTx) return;
-    const fakeEvent = { stopPropagation: () => {} } as any;
-    await handleDeleteTransaction(selectedTx, fakeEvent);
     setDetailsOpen(false);
+    setDeleteConfirmOpen(selectedTx);
     setSelectedTx(null);
   };
 
@@ -332,7 +364,14 @@ export default function FinancialTransactions() {
                         </div>
                       )}
                     </td>
-                    <td className="p-4 text-muted-foreground hidden md:table-cell">{account?.name}</td>
+                    <td className="p-4 text-muted-foreground hidden md:table-cell">
+                      {account?.name}
+                      {t.type === "transfer" && (
+                        <span className="block text-[10px] text-muted-foreground mt-0.5">
+                          → {t.destinationAccountId ? (accounts.find((a) => a.id === t.destinationAccountId)?.name || "Destino") : <span className="text-amber-500 font-semibold">Sem destino ⚠️</span>}
+                        </span>
+                      )}
+                    </td>
                     <td className="p-4 text-muted-foreground hidden lg:table-cell">{category?.name}</td>
                     <td className="p-4">{t.description}</td>
                     <td className={cn("p-4 text-right font-medium", t.type === "income" ? "text-success" : "text-destructive")}>
@@ -537,6 +576,20 @@ export default function FinancialTransactions() {
               </Select>
             </div>
 
+            {editType === "transfer" && (
+              <div>
+                <Label>Conta destino</Label>
+                <Select value={editDestAccount} onValueChange={setEditDestAccount} disabled={!isAdmin}>
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>
+                    {accounts.filter((a) => a.id !== editAccount).map((a) => (
+                      <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div>
               <Label>Categoria</Label>
               <Select value={editCategory} onValueChange={setEditCategory} disabled={!isAdmin}>
@@ -623,6 +676,25 @@ export default function FinancialTransactions() {
                 Salvar Alterações
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={!!deleteConfirmOpen} onOpenChange={() => setDeleteConfirmOpen(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Excluir Movimentação</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Deseja realmente excluir esta movimentação financeira? 
+              O saldo da conta associada será revertido de acordo. Esta ação não poderá ser desfeita.
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={confirmDeleteTransaction}>Excluir</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

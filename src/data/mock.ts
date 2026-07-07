@@ -52,6 +52,8 @@ export interface Account {
   id: string;
   name: string;
   balance: number;
+  agency?: string;
+  account_number?: string;
 }
 
 export interface Category {
@@ -74,6 +76,7 @@ export interface Transaction {
   affectsSystemBalance?: boolean | null;
   rawDescription?: string;
   receivableId?: string | null;
+  destinationAccountId?: string | null;
 }
 
 export interface RecurringItem {

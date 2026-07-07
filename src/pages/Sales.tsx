@@ -70,9 +70,22 @@ let isSyncingSalesToClients = false;
 
 export default function Sales() {
   const { user, profile } = useAuth();
-  const { accounts, categories, projects, addTransaction, updateAccountBalance } = useApp();
-  const [sales, setSales] = useState<CompanySale[]>([]);
-  const [products, setProducts] = useState<CompanyProduct[]>([]);
+  const { 
+    accounts, 
+    categories, 
+    projects, 
+    addTransaction, 
+    updateAccountBalance,
+    sales,
+    loadSales,
+    addSale,
+    updateSale,
+    deleteSale,
+    products,
+    loadProducts,
+    systems,
+    loadSystems,
+  } = useApp();
   const [loading, setLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saleToDelete, setSaleToDelete] = useState<CompanySale | null>(null);
@@ -92,6 +105,7 @@ export default function Sales() {
   const [finDesc, setFinDesc] = useState("");
   const [finSystem, setFinSystem] = useState("none");
   const [finAffectsSystem, setFinAffectsSystem] = useState(true);
+  const [finDate, setFinDate] = useState<string>(new Date().toISOString().split("T")[0]);
 
   // Filters State
   const [search, setSearch] = useState("");
@@ -105,7 +119,6 @@ export default function Sales() {
       toast.info(`Filtrando lista de oportunidades...`);
     }
   };
-  const [systems, setSystems] = useState<{ id: string; name: string }[]>([]);
   const [systemFilter, setSystemFilter] = useState("all");
   const [periodFilter, setPeriodFilter] = useState<"today" | "7days" | "30days" | "year" | "all">("all");
 
@@ -246,26 +259,19 @@ export default function Sales() {
   const loadSalesAndProducts = async () => {
     setLoading(true);
     try {
-      // Load Sales
-      const { data: salesData, error: salesErr } = await supabase.from("company_sales").select("*").order("created_at", { ascending: false });
-      if (salesErr) throw salesErr;
-      const loadedSales = salesData || [];
-      setSales(loadedSales);
-
-      // Load Products/Services catalog to select from
-      const { data: prodData } = await supabase.from("company_products").select("*").eq("status", "active");
-      setProducts(prodData || []);
-
-      // Load Systems
-      const { data: sysData } = await supabase.from("company_systems").select("id, name").order("name", { ascending: true });
-      if (sysData) setSystems(sysData);
+      // Load sales, products, and systems from our context
+      await Promise.all([
+        loadSales(),
+        loadProducts(),
+        loadSystems()
+      ]);
 
       // Load CRM Clients
       const clientsList = await crmService.getClients();
       
       // Auto-migrate missing clients from currentSales to crmClients
-      if (loadedSales.length > 0) {
-        const syncResult = await syncExistingSalesToClients(loadedSales, clientsList);
+      if (sales.length > 0) {
+        const syncResult = await syncExistingSalesToClients(sales, clientsList);
         setCrmClients(syncResult.freshClients);
       } else {
         setCrmClients(clientsList);
@@ -275,7 +281,7 @@ export default function Sales() {
       const acts = await crmService.getActivities();
       setActivities(acts);
     } catch (err: any) {
-      console.error("Erro ao carregar vendas do Firebase:", err);
+      console.error("Erro ao carregar dados de vendas:", err);
       toast.error("Erro ao sincronizar informações de vendas.");
     } finally {
       setLoading(false);
@@ -295,6 +301,15 @@ export default function Sales() {
     setFinType("income");
     setFinValue(String(saleData.total_price || 0));
     setFinDesc(`Venda: ${saleData.client_name} - ${saleData.product_name}`);
+    
+    let initialDate = new Date().toISOString().split("T")[0];
+    if (saleData.notes) {
+      const closedMatch = saleData.notes.match(/\[closed_at:(\d{4}-\d{2}-\d{2})\]/);
+      if (closedMatch) {
+        initialDate = closedMatch[1];
+      }
+    }
+    setFinDate(initialDate);
     
     const sysId = saleData.system_id || "none";
     setFinSystem(sysId);
@@ -327,6 +342,10 @@ export default function Sales() {
 
     setIsSaving(true);
     try {
+      let cleanNotes = (pendingSale.notes || "").replace(/\[closed_at:(\d{4}-\d{2}-\d{2})\]/g, "").trim();
+      const closedAtTag = `[closed_at:${finDate}]`;
+      const notesWithTag = cleanNotes ? `${cleanNotes} ${closedAtTag}` : closedAtTag;
+
       const basePayload = {
         client_name: pendingSale.client_name,
         company_name: pendingSale.company_name,
@@ -338,45 +357,32 @@ export default function Sales() {
         stage: "closed_won" as const,
         seller_id: pendingSale.seller_id,
         seller_name: pendingSale.seller_name,
-        notes: pendingSale.notes,
+        notes: notesWithTag,
       };
 
       if (pendingSale.id) {
         // Update existing sale
-        let { error } = await supabase.from("company_sales").update({
-          ...basePayload,
-          system_id: pendingSale.system_id,
-        }).eq("id", pendingSale.id);
-        
-        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
-          console.warn("Retrying update without system_id column");
-          const retryRes = await supabase.from("company_sales").update(basePayload).eq("id", pendingSale.id);
-          error = retryRes.error;
-        }
-        if (error) throw error;
-      } else {
-        // Insert new sale
-        let { error } = await supabase.from("company_sales").insert({
+        await updateSale(pendingSale.id, {
           ...basePayload,
           system_id: pendingSale.system_id,
         });
-        
-        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
-          console.warn("Retrying insert without system_id column");
-          const retryRes = await supabase.from("company_sales").insert(basePayload);
-          error = retryRes.error;
-        }
-        if (error) throw error;
+      } else {
+        // Insert new sale
+        await addSale({
+          ...basePayload,
+          system_id: pendingSale.system_id,
+        });
       }
 
       // Track financial txn
+      const txnDate = new Date(finDate + "T12:00:00");
       const txn = {
         type: finType as any,
         projectId: finProject === "general" ? null : finProject,
         accountId: finAccount,
         categoryId: finCategory || null,
         value,
-        date: new Date(),
+        date: txnDate,
         description: finDesc || `Venda: ${pendingSale.client_name}`,
         systemId: finSystem === "none" ? null : finSystem,
         affectsSystemBalance: finAffectsSystem,
@@ -385,12 +391,15 @@ export default function Sales() {
       await addTransaction(txn);
       
       // Update local account balance
-      if (finType === "income") updateAccountBalance(finAccount, value);
-      if (finType === "expense") updateAccountBalance(finAccount, -value);
-      if (finType === "withdrawal") updateAccountBalance(finAccount, -value);
-      if (finType === "transfer") {
-        updateAccountBalance(finAccount, -value);
-        if (finDestAccount) updateAccountBalance(finDestAccount, value);
+      if (finType === "income") {
+        await updateAccountBalance(finAccount, value);
+      } else if (finType === "expense" || finType === "withdrawal") {
+        await updateAccountBalance(finAccount, -value);
+      } else if (finType === "transfer") {
+        await updateAccountBalance(finAccount, -value);
+        if (finDestAccount) {
+          await updateAccountBalance(finDestAccount, value);
+        }
       }
 
       toast.success("Venda finalizada (ganha) e movimentação financeira registrada com sucesso!");
@@ -467,62 +476,39 @@ export default function Sales() {
     try {
       if (editingId) {
         // Update with client_id if selected
-        let { error } = await supabase.from("company_sales").update({
+        await updateSale(editingId, {
           ...basePayload,
           system_id: selectedSystemId,
           client_id: selectedClientId || undefined
-        } as any).eq("id", editingId);
-        
-        // Handle missing column or other db error gracefully
-        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
-          console.warn("Retrying update without client_id or system_id column");
-          const retryRes = await supabase.from("company_sales").update(basePayload).eq("id", editingId);
-          error = retryRes.error;
-        }
+        });
 
         if (selectedClientId) {
           crmService.saveSaleClientBinding(editingId, selectedClientId);
         }
         
-        if (error) throw error;
         toast.success("Oportunidade de venda atualizada.");
       } else {
         // Insert new sale
-        const newSalePayload: any = {
+        const res = await addSale({
           ...basePayload,
           system_id: selectedSystemId,
-        };
-        if (selectedClientId) {
-          newSalePayload.client_id = selectedClientId;
-        }
-
-        let res = await supabase.from("company_sales").insert(newSalePayload).select();
-        let error = res.error;
+          client_id: selectedClientId || undefined
+        });
         
-        if (error && (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist'))) {
-          console.warn("Retrying insert without client_id or system_id columns");
-          res = await supabase.from("company_sales").insert(basePayload).select();
-          error = res.error;
-        }
-        
-        const inserted = res.data?.[0];
+        const inserted = res?.data?.[0];
         if (inserted && selectedClientId) {
           crmService.saveSaleClientBinding(inserted.id, selectedClientId);
         } else if (selectedClientId) {
-          // If insert returned nothing, we can save the name mapping in fallback
           crmService.saveSaleClientBinding(clientName, selectedClientId);
         }
 
-        if (error) throw error;
         toast.success("Oportunidade de venda registrada no funil.");
       }
 
       setIsDialogOpen(false);
       clearForm();
-      loadSalesAndProducts();
     } catch (err: any) {
       console.error(err);
-      toast.error("Erro ao gravar venda no banco de dados.");
     } finally {
       setIsSaving(false);
     }
@@ -589,11 +575,9 @@ export default function Sales() {
     if (!saleToDelete || isDeleting) return;
     setIsDeleting(true);
     try {
-      const { error } = await supabase.from("company_sales").delete().eq("id", saleToDelete.id);
-      if (error) throw error;
+      await deleteSale(saleToDelete.id);
       toast.success("Oportunidade de venda excluída com sucesso.");
       setSaleToDelete(null);
-      loadSalesAndProducts();
     } catch (err) {
       console.error(err);
       toast.error("Erro ao deletar registro.");
@@ -831,9 +815,17 @@ export default function Sales() {
   // Period filter logic helper
   const matchesPeriod = (sale: CompanySale) => {
     if (periodFilter === "all") return true;
-    if (!sale.created_at) return true;
     
-    const createdAt = new Date(sale.created_at);
+    let saleDate = sale.created_at;
+    if (sale.stage === "closed_won" && sale.notes) {
+      const closedMatch = sale.notes.match(/\[closed_at:(\d{4}-\d{2}-\d{2})\]/);
+      if (closedMatch) {
+        saleDate = closedMatch[1];
+      }
+    }
+    if (!saleDate) return true;
+    
+    const createdAt = new Date(saleDate);
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
@@ -1829,6 +1821,17 @@ export default function Sales() {
                 className="mt-1.5"
                 value={finValue}
                 onChange={(e) => setFinValue(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="fin-date">Data do Fechamento (Ganha)</Label>
+              <Input
+                id="fin-date"
+                type="date"
+                className="mt-1.5"
+                value={finDate}
+                onChange={(e) => setFinDate(e.target.value)}
               />
             </div>
 

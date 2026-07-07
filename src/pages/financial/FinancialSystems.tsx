@@ -33,9 +33,7 @@ const cleanDescription = (desc: string) => {
 };
 
 export default function FinancialSystems() {
-  const { categories } = useApp();
-  const [systems, setSystems] = useState<CompanySystem[]>([]);
-  const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
+  const { categories, systems, loadSystems, transactions: contextTransactions, useLocalFallback } = useApp();
   const [loading, setLoading] = useState(false);
 
   // States
@@ -43,45 +41,23 @@ export default function FinancialSystems() {
   const [editValue, setEditValue] = useState("");
   const [selectedSystemForDetails, setSelectedSystemForDetails] = useState<CompanySystem | null>(null);
 
+  const transactions: FinancialTransaction[] = contextTransactions.map((t) => ({
+    id: t.id,
+    type: t.type,
+    value: t.value,
+    project_id: t.projectId,
+    system_id: t.systemId,
+    description: t.description,
+    transaction_date: t.date ? t.date.toISOString() : null,
+    category_id: t.categoryId,
+  }));
+
   const loadData = async () => {
     setLoading(true);
     try {
-      // 1. Systems
-      const sysRes = await supabase.from("company_systems" as any).select("*").order("name", { ascending: true });
-      if (sysRes.error) { console.error("Error loading systems:", sysRes.error); throw sysRes.error; }
-
-      // 2. Transactions - with date and category_id
-      let txRes = await supabase.from("financial_transactions" as any).select("id, type, value, project_id, system_id, description, transaction_date, category_id");
-      if (txRes.error && (txRes.error.code === '42703' || txRes.error.message?.includes('column') || txRes.error.message?.includes('does not exist'))) {
-        console.warn("Retrying financial_transactions select without system_id column");
-        txRes = await supabase.from("financial_transactions" as any).select("id, type, value, project_id, description, transaction_date, category_id");
-      }
-      if (txRes.error) { console.error("Error loading transactions (detailed):", JSON.stringify(txRes.error)); throw txRes.error; }
-
-      const mappedTx = (txRes.data || []).map((t: any) => {
-        let systemId = t.system_id || null;
-        const desc = t.description || "";
-        const match = desc.match(/\[sys:([^:\s\]]+)(?::([yn]))?\]/);
-        if (match && !systemId) {
-          systemId = match[1];
-        }
-        return {
-          id: t.id,
-          type: t.type,
-          value: Number(t.value),
-          project_id: t.project_id,
-          system_id: systemId,
-          description: desc,
-          transaction_date: t.transaction_date || null,
-          category_id: t.category_id || null,
-        };
-      });
-
-      setSystems(sysRes.data || []);
-      setTransactions(mappedTx);
+      await loadSystems();
     } catch (err) {
-      console.error("Erro ao carregar dados financeiros dos sistemas (detalhado):", err);
-      toast.error(`Erro ao obter informações financeiras: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+      console.error("Erro ao carregar sistemas:", err);
     } finally {
       setLoading(false);
     }
@@ -90,20 +66,22 @@ export default function FinancialSystems() {
   useEffect(() => {
     loadData();
 
-    const channel = supabase
-      .channel("financial_systems_changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "financial_transactions" }, () => {
-        loadData();
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "company_systems" }, () => {
-        loadData();
-      })
-      .subscribe();
+    if (!useLocalFallback) {
+      const channel = supabase
+        .channel("financial_systems_changes")
+        .on("postgres_changes", { event: "*", schema: "public", table: "financial_transactions" }, () => {
+          loadData();
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "company_systems" }, () => {
+          loadData();
+        })
+        .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [useLocalFallback]);
 
   const getSystemFinancials = (systemId: string) => {
     // 1. Initial Balance
