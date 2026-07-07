@@ -20,7 +20,8 @@ import {
   Filter,
   Activity,
   CheckSquare,
-  Edit2
+  Edit2,
+  Clock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -29,6 +30,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+
+const monthNames = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+];
 
 export default function Calendar() {
   const { user } = useAuth();
@@ -44,6 +50,7 @@ export default function Calendar() {
 
   // Calendar Grid State
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [calendarView, setCalendarView] = useState<"month" | "week" | "day">("month");
   
   // Dialog State
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
@@ -116,13 +123,81 @@ export default function Calendar() {
     }
   };
 
-  const handlePrevMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+  const handlePrev = () => {
+    if (calendarView === "month") {
+      setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+    } else if (calendarView === "week") {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() - 7);
+      setCurrentDate(d);
+    } else {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() - 1);
+      setCurrentDate(d);
+    }
   };
 
-  const handleNextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+  const handleNext = () => {
+    if (calendarView === "month") {
+      setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+    } else if (calendarView === "week") {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() + 7);
+      setCurrentDate(d);
+    } else {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() + 1);
+      setCurrentDate(d);
+    }
   };
+
+  const getDaysOfWeek = (date: Date) => {
+    const currentDay = date.getDay(); // 0 is Sunday
+    const sunday = new Date(date);
+    sunday.setDate(date.getDate() - currentDay);
+    const weekDays: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(sunday);
+      day.setDate(sunday.getDate() + i);
+      weekDays.push(day);
+    }
+    return weekDays;
+  };
+
+  const getFormattedTitle = () => {
+    if (calendarView === "month") {
+      return `${monthNames[currentDate.getMonth()]} de ${currentDate.getFullYear()}`;
+    } else if (calendarView === "week") {
+      const weekDays = getDaysOfWeek(currentDate);
+      const start = weekDays[0];
+      const end = weekDays[6];
+      return `Semana: ${start.getDate()}/${start.getMonth() + 1} a ${end.getDate()}/${end.getMonth() + 1} de ${end.getFullYear()}`;
+    } else {
+      return `${currentDate.getDate()} de ${monthNames[currentDate.getMonth()]} de ${currentDate.getFullYear()}`;
+    }
+  };
+
+  const getEventsForDate = (date: Date) => {
+    const yearStr = date.getFullYear();
+    const monthStr = String(date.getMonth() + 1).padStart(2, "0");
+    const dayStr = String(date.getDate()).padStart(2, "0");
+    const comparisonDate = `${yearStr}-${monthStr}-${dayStr}`;
+
+    const matchedActivities = activities.filter(act => act.date === comparisonDate);
+    const matchedTasks = tasks.filter(task => task.due_date === comparisonDate);
+
+    return {
+      activities: matchedActivities,
+      tasks: matchedTasks
+    };
+  };
+
+  const weekdayNames = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+  
+  const hours = [
+    "08:00", "09:00", "10:00", "11:00", "12:00", "13:00",
+    "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"
+  ];
 
   const handleSelectDay = (day: number) => {
     const year = currentDate.getFullYear();
@@ -297,11 +372,6 @@ export default function Calendar() {
     daysArray.push(i);
   }
 
-  const monthNames = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-  ];
-
   // Helper to match events for a given day
   const getEventsForDay = (day: number) => {
     const dayStr = String(day).padStart(2, "0");
@@ -429,131 +499,407 @@ export default function Calendar() {
 
       {loading ? (
         <div className="min-h-[400px] flex flex-col items-center justify-center border border-dashed rounded-xl p-8 space-y-3">
-          <RefreshCw className="w-10 h-10 text-indigo-505 animate-spin" />
+          <RefreshCw className="w-10 h-10 text-indigo-500 animate-spin" />
           <p className="text-muted-foreground text-sm font-semibold">Buscando e sincronizando compromissos com Google Agenda...</p>
         </div>
       ) : activeTab === "calendar" ? (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Calendar Grid Controller (Left Columns) */}
-          <Card className="lg:col-span-8 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-4 border-b">
+        <div className="space-y-6">
+          {/* Calendar Grid Controller (Full Width) */}
+          <Card className="w-full shadow-sm">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b gap-4">
               <div>
                 <CardTitle className="text-lg font-black text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                  📁 {monthNames[month]} de {year}
+                  📁 {getFormattedTitle()}
                 </CardTitle>
                 <CardDescription>
-                  Selecione um dia para agendar compromissos diretamente.
+                  {calendarView === "month" 
+                    ? "Selecione um dia para agendar compromissos diretamente." 
+                    : calendarView === "week" 
+                    ? "Visualize e gerencie a programação desta semana."
+                    : "Agende compromissos escolhendo um horário na linha do tempo."}
                 </CardDescription>
               </div>
 
-              <div className="flex items-center gap-1">
-                <Button variant="outline" size="icon" onClick={handlePrevMonth} className="w-8 h-8 rounded-lg">
-                  <ChevronLeft className="w-4.5 h-4.5" />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())} className="text-xs h-8">
-                  Hoje
-                </Button>
-                <Button variant="outline" size="icon" onClick={handleNextMonth} className="w-8 h-8 rounded-lg">
-                  <ChevronRight className="w-4.5 h-4.5" />
-                </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                {/* View Selection Button Group */}
+                <div className="flex items-center border rounded-lg p-0.5 bg-muted/40 shrink-0">
+                  <Button 
+                    variant={calendarView === "month" ? "secondary" : "ghost"} 
+                    size="sm" 
+                    onClick={() => setCalendarView("month")}
+                    className="text-xs h-7 px-2.5 font-bold"
+                  >
+                    Mês
+                  </Button>
+                  <Button 
+                    variant={calendarView === "week" ? "secondary" : "ghost"} 
+                    size="sm" 
+                    onClick={() => setCalendarView("week")}
+                    className="text-xs h-7 px-2.5 font-bold"
+                  >
+                    Semana
+                  </Button>
+                  <Button 
+                    variant={calendarView === "day" ? "secondary" : "ghost"} 
+                    size="sm" 
+                    onClick={() => setCalendarView("day")}
+                    className="text-xs h-7 px-2.5 font-bold"
+                  >
+                    Dia
+                  </Button>
+                </div>
+
+                {/* Navigation Group */}
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="icon" onClick={handlePrev} className="w-8 h-8 rounded-lg">
+                    <ChevronLeft className="w-4.5 h-4.5" />
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())} className="text-xs h-8 font-semibold">
+                    Hoje
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={handleNext} className="w-8 h-8 rounded-lg">
+                    <ChevronRight className="w-4.5 h-4.5" />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
+            
             <CardContent className="p-4 sm:p-6">
-              {/* Day headers */}
-              <div className="grid grid-cols-7 gap-1 text-center text-xs font-black text-muted-foreground uppercase tracking-wider mb-2">
-                <span>Dom</span>
-                <span>Seg</span>
-                <span>Ter</span>
-                <span>Qua</span>
-                <span>Qui</span>
-                <span>Sex</span>
-                <span>Sáb</span>
-              </div>
+              {calendarView === "month" && (
+                <>
+                  {/* Day headers */}
+                  <div className="grid grid-cols-7 gap-1 text-center text-xs font-black text-muted-foreground uppercase tracking-wider mb-2">
+                    <span>Dom</span>
+                    <span>Seg</span>
+                    <span>Ter</span>
+                    <span>Qua</span>
+                    <span>Qui</span>
+                    <span>Sex</span>
+                    <span>Sáb</span>
+                  </div>
 
-              {/* Grid content */}
-              <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
-                {daysArray.map((day, idx) => {
-                  if (day === null) {
-                    return <div key={`empty-${idx}`} className="bg-slate-50/40 dark:bg-slate-950/10 min-h-[75px] sm:min-h-[100px] border border-transparent rounded-lg" />;
-                  }
+                  {/* Grid content */}
+                  <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+                    {daysArray.map((day, idx) => {
+                      if (day === null) {
+                        return <div key={`empty-${idx}`} className="bg-slate-50/40 dark:bg-slate-950/10 min-h-[75px] sm:min-h-[100px] border border-transparent rounded-lg" />;
+                      }
 
-                  const { activities: dayActs, tasks: dayTsks } = getEventsForDay(day);
-                  const isToday =
-                    new Date().getDate() === day &&
-                    new Date().getMonth() === month &&
-                    new Date().getFullYear() === year;
+                      const { activities: dayActs, tasks: dayTsks } = getEventsForDay(day);
+                      const isToday =
+                        new Date().getDate() === day &&
+                        new Date().getMonth() === month &&
+                        new Date().getFullYear() === year;
 
-                  return (
-                    <div
-                      key={`day-${day}`}
-                      onClick={() => handleSelectDay(day)}
-                      className={`min-h-[75px] sm:min-h-[100px] border rounded-lg p-1.5 text-left transition-all cursor-pointer flex flex-col justify-between hover:bg-slate-55/75 dark:hover:bg-slate-900/50 ${
-                        isToday
-                          ? "bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-400 font-bold ring-1 ring-indigo-400"
-                          : "bg-background border-slate-200/60"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] sm:text-xs font-black px-1.5 py-0.5 rounded-full ${
-                          isToday ? "bg-indigo-600 text-white" : "text-muted-foreground hover:bg-muted"
-                        }`}>
-                          {day}
-                        </span>
-                        
-                        {(dayActs.length > 0 || dayTsks.length > 0) && (
-                          <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                        )}
-                      </div>
+                      const dayStr = String(day).padStart(2, "0");
+                      const mStr = String(month + 1).padStart(2, "0");
+                      const fullDate = `${year}-${mStr}-${dayStr}`;
 
-                      <div className="space-y-1 mt-1 overflow-y-auto max-h-[60px] scrollbar-none">
-                        {dayActs.slice(0, 3).map((act) => {
-                          const iconLabel =
-                            act.type === "call" ? "📞" :
-                            act.type === "meeting" ? "🤝" :
-                            act.type === "presentation" ? "📊" : "⚡";
+                      return (
+                        <div
+                          key={`day-${day}`}
+                          onClick={() => {
+                            setEditingEventId(null);
+                            setEventDate(fullDate);
+                            setEventTitle("");
+                            setEventDescription("");
+                            setEventLocation("");
+                            setEventParticipants("");
+                            setSelectedClientId("none");
+                            setIsAddEventOpen(true);
+                          }}
+                          className={`min-h-[75px] sm:min-h-[100px] border rounded-lg p-1.5 text-left transition-all cursor-pointer flex flex-col justify-between hover:bg-slate-55/75 dark:hover:bg-slate-900/50 ${
+                            isToday
+                              ? "bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-400 font-bold ring-1 ring-indigo-400"
+                              : "bg-background border-slate-200/60"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className={`text-[10px] sm:text-xs font-black px-1.5 py-0.5 rounded-full ${
+                              isToday ? "bg-indigo-600 text-white" : "text-muted-foreground hover:bg-muted"
+                            }`}>
+                              {day}
+                            </span>
+                            
+                            {(dayActs.length > 0 || dayTsks.length > 0) && (
+                              <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                            )}
+                          </div>
 
-                          return (
-                            <div
-                              key={act.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenEditEvent(act);
-                              }}
-                              className="text-[9px] truncate bg-slate-100 dark:bg-slate-900 p-0.5 rounded border leading-none font-medium flex items-center gap-0.5 text-foreground hover:bg-slate-200 dark:hover:bg-slate-850"
-                              title={`${act.title} às ${act.time}`}
-                            >
-                              <span className="text-[10px] shrink-0">{iconLabel}</span>
-                              <span className="truncate flex-1">{act.title}</span>
+                          <div className="space-y-1 mt-1 overflow-y-auto max-h-[60px] scrollbar-none">
+                            {dayActs.slice(0, 3).map((act) => {
+                              const iconLabel =
+                                act.type === "call" ? "📞" :
+                                act.type === "meeting" ? "🤝" :
+                                act.type === "presentation" ? "📊" : "⚡";
+
+                              return (
+                                <div
+                                  key={act.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenEditEvent(act);
+                                  }}
+                                  className="text-[9px] truncate bg-slate-100 dark:bg-slate-900 p-0.5 rounded border leading-none font-medium flex items-center gap-0.5 text-foreground hover:bg-slate-200 dark:hover:bg-slate-850"
+                                  title={`${act.title} às ${act.time}`}
+                                >
+                                  <span className="text-[10px] shrink-0">{iconLabel}</span>
+                                  <span className="truncate flex-1">{act.title}</span>
+                                </div>
+                              );
+                            })}
+
+                            {dayTsks.slice(0, 2).map((task) => (
+                              <div
+                                key={task.id}
+                                className="text-[9px] truncate bg-amber-50 dark:bg-amber-950/10 p-0.5 rounded border border-amber-200 text-amber-800 dark:text-amber-300 leading-none font-medium flex items-center gap-0.5"
+                                title={`Tarefa: ${task.description}`}
+                              >
+                                <span className="shrink-0">📝</span>
+                                <span className="truncate flex-1">{task.description}</span>
+                              </div>
+                            ))}
+
+                            {(dayActs.length + dayTsks.length) > 5 && (
+                              <div className="text-[8px] text-center text-muted-foreground uppercase font-black tracking-tighter">
+                                + {(dayActs.length + dayTsks.length) - 5} itens
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {calendarView === "week" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
+                  {getDaysOfWeek(currentDate).map((day, idx) => {
+                    const { activities: dayActs, tasks: dayTsks } = getEventsForDate(day);
+                    const isToday =
+                      new Date().getDate() === day.getDate() &&
+                      new Date().getMonth() === day.getMonth() &&
+                      new Date().getFullYear() === day.getFullYear();
+
+                    const dayStr = String(day.getDate()).padStart(2, "0");
+                    const monthStr = String(day.getMonth() + 1).padStart(2, "0");
+                    const fullDateStr = `${day.getFullYear()}-${monthStr}-${dayStr}`;
+
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => {
+                          setEditingEventId(null);
+                          setEventDate(fullDateStr);
+                          setEventTitle("");
+                          setEventDescription("");
+                          setEventLocation("");
+                          setEventParticipants("");
+                          setSelectedClientId("none");
+                          setIsAddEventOpen(true);
+                        }}
+                        className={`min-h-[220px] border rounded-xl p-3 text-left transition-all cursor-pointer flex flex-col justify-between hover:bg-slate-50/50 dark:hover:bg-slate-900/40 ${
+                          isToday
+                            ? "bg-indigo-50/55 dark:bg-indigo-950/25 border-indigo-400 ring-1 ring-indigo-400"
+                            : "bg-background border-slate-200/60"
+                        }`}
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between border-b pb-2">
+                            <div>
+                              <span className="text-[10px] text-muted-foreground uppercase font-black tracking-wider block">
+                                {weekdayNames[day.getDay()]}
+                              </span>
+                              <span className={`text-base font-black ${isToday ? "text-indigo-600 dark:text-indigo-400" : "text-foreground"}`}>
+                                {day.getDate()}
+                              </span>
                             </div>
-                          );
-                        })}
-
-                        {dayTsks.slice(0, 2).map((task) => (
-                          <div
-                            key={task.id}
-                            className="text-[9px] truncate bg-amber-50 dark:bg-amber-950/10 p-0.5 rounded border border-amber-200 text-amber-800 dark:text-amber-300 leading-none font-medium flex items-center gap-0.5"
-                            title={`Tarefa: ${task.description}`}
-                          >
-                            <span className="shrink-0">📝</span>
-                            <span className="truncate flex-1">{task.description}</span>
+                            <span className="p-1 rounded-full text-muted-foreground hover:bg-muted shrink-0">
+                              <Plus className="w-3.5 h-3.5" />
+                            </span>
                           </div>
-                        ))}
 
-                        {(dayActs.length + dayTsks.length) > 5 && (
-                          <div className="text-[8px] text-center text-muted-foreground uppercase font-black tracking-tighter">
-                            + {(dayActs.length + dayTsks.length) - 5} itens
+                          <div className="space-y-2 max-h-[140px] overflow-y-auto scrollbar-none">
+                            {dayActs.length === 0 && dayTsks.length === 0 ? (
+                              <span className="text-[10px] text-muted-foreground italic block pt-2">Vazio</span>
+                            ) : (
+                              <>
+                                {dayActs.map((act) => {
+                                  const iconLabel =
+                                    act.type === "call" ? "📞" :
+                                    act.type === "meeting" ? "🤝" :
+                                    act.type === "presentation" ? "📊" : "⚡";
+
+                                  return (
+                                    <div
+                                      key={act.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenEditEvent(act);
+                                      }}
+                                      className="text-[10px] bg-slate-100 dark:bg-slate-900 p-1.5 rounded-lg border leading-snug font-medium flex items-center gap-1.5 text-foreground hover:bg-slate-200 dark:hover:bg-slate-800"
+                                      title={`${act.title} às ${act.time}`}
+                                    >
+                                      <span className="text-xs shrink-0">{iconLabel}</span>
+                                      <span className="truncate flex-1">{act.title}</span>
+                                    </div>
+                                  );
+                                })}
+
+                                {dayTsks.map((task) => (
+                                  <div
+                                    key={task.id}
+                                    className="text-[10px] bg-amber-50 dark:bg-amber-955/10 p-1.5 rounded-lg border border-amber-200 text-amber-800 dark:text-amber-300 leading-snug font-medium flex items-center gap-1.5"
+                                    title={`Tarefa: ${task.description}`}
+                                  >
+                                    <span className="shrink-0">📝</span>
+                                    <span className="truncate flex-1">{task.description}</span>
+                                  </div>
+                                ))}
+                              </>
+                            )}
                           </div>
-                        )}
+                        </div>
                       </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {calendarView === "day" && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Hourly Timeline */}
+                  <div className="md:col-span-2 space-y-2.5">
+                    <h3 className="text-sm font-black uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5 animate-fade-in text-left">
+                      <Clock className="w-4 h-4 text-indigo-500" /> Compromissos do Dia (Horários)
+                    </h3>
+                    
+                    <div className="border rounded-xl divide-y bg-muted/10">
+                      {hours.map((hour) => {
+                        const { activities: dayActs } = getEventsForDate(currentDate);
+                        const hourNum = parseInt(hour.split(":")[0]);
+                        const matchedActs = dayActs.filter((act) => {
+                          if (!act.time) return false;
+                          const actHour = parseInt(act.time.split(":")[0]);
+                          return actHour === hourNum;
+                        });
+
+                        const dayStr = String(currentDate.getDate()).padStart(2, "0");
+                        const monthStr = String(currentDate.getMonth() + 1).padStart(2, "0");
+                        const fullDateStr = `${currentDate.getFullYear()}-${monthStr}-${dayStr}`;
+
+                        return (
+                          <div key={hour} className="flex items-stretch min-h-[55px] hover:bg-slate-50/50 dark:hover:bg-slate-900/20 transition-colors">
+                            <div className="w-16 p-3 border-r text-xs font-black text-slate-500 flex items-center justify-center bg-muted/20 shrink-0">
+                              {hour}
+                            </div>
+                            <div className="flex-1 p-2.5 flex flex-wrap items-center gap-2">
+                              {matchedActs.length > 0 ? (
+                                matchedActs.map((act) => {
+                                  const iconLabel =
+                                    act.type === "call" ? "📞" :
+                                    act.type === "meeting" ? "🤝" :
+                                    act.type === "presentation" ? "📊" : "⚡";
+
+                                  return (
+                                    <div
+                                      key={act.id}
+                                      onClick={() => handleOpenEditEvent(act)}
+                                      className="text-xs bg-slate-100 dark:bg-slate-900 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 border-indigo-200 border p-2 rounded-lg cursor-pointer font-semibold flex items-center gap-2 max-w-full truncate shadow-sm transition-all text-left"
+                                    >
+                                      <span className="text-sm">{iconLabel}</span>
+                                      <div className="min-w-0">
+                                        <p className="font-bold text-foreground truncate">{act.title}</p>
+                                        {act.location && <p className="text-[10px] text-muted-foreground truncate">📍 {act.location}</p>}
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingEventId(null);
+                                    setEventDate(fullDateStr);
+                                    setEventTime(hour);
+                                    setEventTitle("");
+                                    setEventDescription("");
+                                    setEventLocation("");
+                                    setEventParticipants("");
+                                    setSelectedClientId("none");
+                                    setIsAddEventOpen(true);
+                                  }}
+                                  className="text-[11px] text-muted-foreground hover:text-indigo-600 flex items-center gap-1 font-semibold p-1 h-7 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+                                >
+                                  <Plus className="w-3 h-3" /> Agendar compromisso para {hour}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+
+                  {/* Day's Overview / Tasks */}
+                  <div className="space-y-4">
+                    <div className="bg-slate-50/50 dark:bg-slate-900/20 border rounded-xl p-4 space-y-4">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 text-left">
+                        <CheckSquare className="w-4 h-4 text-amber-500" /> Tarefas para Hoje
+                      </h3>
+
+                      {(() => {
+                        const { tasks: dayTsks } = getEventsForDate(currentDate);
+                        if (dayTsks.length === 0) {
+                          return (
+                            <p className="text-xs text-muted-foreground italic py-3 text-left">
+                              Nenhuma tarefa corporativa agendada para este dia.
+                            </p>
+                          );
+                        }
+                        return (
+                          <div className="space-y-2">
+                            {dayTsks.map((task) => (
+                              <div
+                                key={task.id}
+                                className="bg-background border border-slate-200/80 rounded-lg p-2.5 text-left text-xs flex items-start gap-2 shadow-sm"
+                              >
+                                <span className="text-base">📝</span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-bold text-foreground leading-normal">{task.description}</p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">Responsável: {task.responsible || "Todos"}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="bg-indigo-50/20 dark:bg-indigo-950/5 border border-indigo-100 dark:border-indigo-900 p-4 rounded-xl space-y-2.5 text-left">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
+                        Resumo da Data
+                      </h4>
+                      {(() => {
+                        const { activities: dayActs, tasks: dayTsks } = getEventsForDate(currentDate);
+                        return (
+                          <div className="space-y-1 text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                            <p>• {dayActs.length} agendamento(s) de atividade.</p>
+                            <p>• {dayTsks.length} tarefa(s) pendente(s).</p>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Quick Stats & Today overview */}
-          <div className="services lg:col-span-4 space-y-6">
+          {/* Information & Stats (Underneath Calendar) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card className="shadow-sm border-sky-100 dark:border-sky-900 bg-sky-50/20 dark:bg-sky-950/5">
               <CardHeader className="pb-3 flex flex-row items-center justify-between">
                 <CardTitle className="text-sm font-bold uppercase tracking-wider text-sky-800 dark:text-sky-300 flex items-center gap-1.5">
@@ -569,14 +915,14 @@ export default function Calendar() {
               <CardContent className="space-y-4">
                 {gcalConnected ? (
                   <div className="space-y-3">
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground text-left">
                       Sua agenda do sistema está sincronizada em tempo real com a Google Agenda.
                     </p>
                     <div className="flex items-center gap-2 p-2 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg border border-emerald-100 dark:border-emerald-900">
                       <div className="bg-emerald-100 dark:bg-emerald-900 p-1 rounded-full text-emerald-700 dark:text-emerald-300 shrink-0">
                         <CheckCircle className="w-3.5 h-3.5" />
                       </div>
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1 text-left">
                         <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 truncate">
                           Sincronização Ativa
                         </p>
@@ -596,7 +942,7 @@ export default function Calendar() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground text-left">
                       Conecte sua conta para sincronizar automaticamente seus agendamentos e reuniões com sua Google Agenda pessoal.
                     </p>
                     <Button 
@@ -661,8 +1007,8 @@ export default function Calendar() {
                   </div>
                 </div>
 
-                <div className="bg-amber-50/30 dark:bg-amber-950/10 border border-amber-100 p-4 rounded-xl text-left">
-                  <span className="text-[10px] text-amber-800 dark:text-amber-400 uppercase font-black flex items-center gap-1">
+                <div className="bg-amber-50/30 dark:bg-amber-955/10 border border-amber-100 p-4 rounded-xl text-left">
+                  <span className="text-[10px] text-amber-850 dark:text-amber-400 uppercase font-black flex items-center gap-1">
                     <CheckSquare className="w-3.5 h-3.5" /> Tarefas Pendentes
                   </span>
                   <p className="text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
@@ -705,7 +1051,7 @@ export default function Calendar() {
                         </div>
                       </div>
                       <p className="text-[11px] text-muted-foreground">📅 {act.date} às {act.time}</p>
-                      {act.location && <span className="text-[10px] text-indigo-605 dark:text-indigo-400 font-medium block">📍 {act.location}</span>}
+                      {act.location && <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium block">📍 {act.location}</span>}
                     </div>
                   ))
                 )}
