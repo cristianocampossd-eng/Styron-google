@@ -1738,7 +1738,7 @@ export default function Sales() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto pr-2">
             <div className="flex items-start space-x-3 p-3 bg-muted/30 border rounded-lg">
               <Checkbox
                 id="generate-revenue"
