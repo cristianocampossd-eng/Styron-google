@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
 import firebaseConfig from "../../firebase-applet-config.json";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 // Initialize Firebase only if it hasn't been initialized yet
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -11,12 +12,53 @@ const auth = getAuth(app);
 let cachedToken: string | null = null;
 let cachedEmail: string | null = null;
 
-// On load, we can retrieve the saved email to show the connection state
+// On load, retrieve saved email from local storage
 try {
   cachedEmail = localStorage.getItem("gcal_connected_email");
 } catch (e) {
   console.error("Erro ao carregar e-mail salvo do Google Agenda:", e);
 }
+
+// Synchronously sync token from Supabase if session exists on load
+supabase.auth.getSession().then(({ data: { session } }) => {
+  if (session?.provider_token) {
+    cachedToken = session.provider_token;
+    cachedEmail = session.user?.email || null;
+    if (cachedEmail) {
+      localStorage.setItem("gcal_connected_email", cachedEmail);
+    }
+  } else if (session?.user?.user_metadata?.gcal_token) {
+    cachedToken = session.user.user_metadata.gcal_token;
+    cachedEmail = session.user.user_metadata.gcal_email || session.user.email || null;
+    if (cachedEmail) {
+      localStorage.setItem("gcal_connected_email", cachedEmail);
+    }
+  }
+}).catch((err) => {
+  console.error("Erro ao inicializar token do Google do Supabase:", err);
+});
+
+// Subscribe to auth state changes to sync token
+supabase.auth.onAuthStateChange((_event, session) => {
+  if (session?.provider_token) {
+    cachedToken = session.provider_token;
+    cachedEmail = session.user?.email || null;
+    if (cachedEmail) {
+      localStorage.setItem("gcal_connected_email", cachedEmail);
+    }
+  } else if (session?.user?.user_metadata?.gcal_token) {
+    cachedToken = session.user.user_metadata.gcal_token;
+    cachedEmail = session.user.user_metadata.gcal_email || session.user.email || null;
+    if (cachedEmail) {
+      localStorage.setItem("gcal_connected_email", cachedEmail);
+    }
+  } else {
+    if (!session) {
+      cachedToken = null;
+      cachedEmail = null;
+    }
+  }
+});
 
 export const googleCalendarService = {
   isInitialized(): boolean {
@@ -28,7 +70,32 @@ export const googleCalendarService = {
   },
 
   async getAccessToken(): Promise<string | null> {
-    return cachedToken;
+    if (cachedToken) return cachedToken;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.provider_token) {
+        cachedToken = session.provider_token;
+        cachedEmail = session.user?.email || null;
+        if (cachedEmail) {
+          localStorage.setItem("gcal_connected_email", cachedEmail);
+        }
+        return cachedToken;
+      }
+
+      if (session?.user?.user_metadata?.gcal_token) {
+        cachedToken = session.user.user_metadata.gcal_token;
+        cachedEmail = session.user.user_metadata.gcal_email || session.user.email || null;
+        if (cachedEmail) {
+          localStorage.setItem("gcal_connected_email", cachedEmail);
+        }
+        return cachedToken;
+      }
+    } catch (e) {
+      console.error("Erro ao ler credenciais do Supabase:", e);
+    }
+
+    return null;
   },
 
   async connect(): Promise<{ email: string; token: string }> {
@@ -49,6 +116,22 @@ export const googleCalendarService = {
       if (cachedEmail) {
         localStorage.setItem("gcal_connected_email", cachedEmail);
       }
+
+      // Save to Supabase User Metadata for cross-domain sync and production site capability
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.auth.updateUser({
+            data: {
+              gcal_token: cachedToken,
+              gcal_email: cachedEmail
+            }
+          });
+        }
+      } catch (sErr) {
+        console.error("Erro ao gravar token do Google no Supabase user_metadata:", sErr);
+      }
+
       toast.success(`Conectado ao Google Agenda como ${cachedEmail}`);
       return { email: cachedEmail || "", token: cachedToken };
     } catch (error: any) {
@@ -58,7 +141,7 @@ export const googleCalendarService = {
     }
   },
 
-  disconnect() {
+  async disconnect() {
     cachedToken = null;
     cachedEmail = null;
     try {
@@ -66,6 +149,22 @@ export const googleCalendarService = {
     } catch (e) {
       console.error(e);
     }
+
+    // Clear in Supabase User Metadata
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.auth.updateUser({
+          data: {
+            gcal_token: null,
+            gcal_email: null
+          }
+        });
+      }
+    } catch (sErr) {
+      console.error("Erro ao apagar token do Google do Supabase user_metadata:", sErr);
+    }
+
     signOut(auth).catch(console.error);
     toast.success("Conta do Google Agenda desconectada.");
   },

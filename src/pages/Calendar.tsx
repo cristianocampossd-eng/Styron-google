@@ -403,7 +403,7 @@ export default function Calendar() {
   });
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 space-y-6 text-foreground bg-background">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6 text-foreground bg-background">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 border-b pb-5">
         <div>
@@ -582,7 +582,7 @@ export default function Calendar() {
                   <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
                     {daysArray.map((day, idx) => {
                       if (day === null) {
-                        return <div key={`empty-${idx}`} className="bg-slate-50/40 dark:bg-slate-950/10 min-h-[75px] sm:min-h-[100px] border border-transparent rounded-lg" />;
+                        return <div key={`empty-${idx}`} className="bg-slate-50/40 dark:bg-slate-950/10 min-h-[110px] sm:min-h-[145px] border border-transparent rounded-lg" />;
                       }
 
                       const { activities: dayActs, tasks: dayTsks } = getEventsForDay(day);
@@ -608,7 +608,7 @@ export default function Calendar() {
                             setSelectedClientId("none");
                             setIsAddEventOpen(true);
                           }}
-                          className={`min-h-[75px] sm:min-h-[100px] border rounded-lg p-1.5 text-left transition-all cursor-pointer flex flex-col justify-between hover:bg-slate-55/75 dark:hover:bg-slate-900/50 ${
+                          className={`min-h-[110px] sm:min-h-[145px] border rounded-lg p-1.5 text-left transition-all cursor-pointer flex flex-col justify-between hover:bg-slate-55/75 dark:hover:bg-slate-900/50 ${
                             isToday
                               ? "bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-400 font-bold ring-1 ring-indigo-400"
                               : "bg-background border-slate-200/60"
@@ -768,9 +768,9 @@ export default function Calendar() {
               )}
 
               {calendarView === "day" && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-6">
                   {/* Hourly Timeline */}
-                  <div className="md:col-span-2 space-y-2.5">
+                  <div className="w-full space-y-2.5">
                     <h3 className="text-sm font-black uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5 animate-fade-in text-left">
                       <Clock className="w-4 h-4 text-indigo-500" /> Compromissos do Dia (Horários)
                     </h3>
@@ -844,7 +844,7 @@ export default function Calendar() {
                   </div>
 
                   {/* Day's Overview / Tasks */}
-                  <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
                     <div className="bg-slate-50/50 dark:bg-slate-900/20 border rounded-xl p-4 space-y-4">
                       <h3 className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 text-left">
                         <CheckSquare className="w-4 h-4 text-amber-500" /> Tarefas para Hoje
@@ -878,14 +878,14 @@ export default function Calendar() {
                       })()}
                     </div>
 
-                    <div className="bg-indigo-50/20 dark:bg-indigo-950/5 border border-indigo-100 dark:border-indigo-900 p-4 rounded-xl space-y-2.5 text-left">
+                    <div className="bg-indigo-50/20 dark:bg-indigo-950/5 border border-indigo-100 dark:border-indigo-900 p-4 rounded-xl space-y-2.5 text-left flex flex-col justify-center">
                       <h4 className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">
                         Resumo da Data
                       </h4>
                       {(() => {
                         const { activities: dayActs, tasks: dayTsks } = getEventsForDate(currentDate);
                         return (
-                          <div className="space-y-1 text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium">
+                          <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-medium mt-2">
                             <p>• {dayActs.length} agendamento(s) de atividade.</p>
                             <p>• {dayTsks.length} tarefa(s) pendente(s).</p>
                           </div>

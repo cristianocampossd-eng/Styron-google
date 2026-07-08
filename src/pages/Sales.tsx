@@ -106,6 +106,7 @@ export default function Sales() {
   const [finSystem, setFinSystem] = useState("none");
   const [finAffectsSystem, setFinAffectsSystem] = useState(true);
   const [finDate, setFinDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [generateRevenue, setGenerateRevenue] = useState<boolean>(true);
 
   // Filters State
   const [search, setSearch] = useState("");
@@ -298,6 +299,7 @@ export default function Sales() {
 
   const openFinancialDialog = (saleData: any) => {
     setPendingSale(saleData);
+    setGenerateRevenue(true);
     setFinType("income");
     setFinValue(String(saleData.total_price || 0));
     setFinDesc(`Venda: ${saleData.client_name} - ${saleData.product_name}`);
@@ -335,9 +337,12 @@ export default function Sales() {
   const handleSaveFinancialTxAndSale = async () => {
     if (!pendingSale || isSaving) return;
     const value = parseFloat(finValue);
-    if (!value || isNaN(value) || !finAccount) {
-      toast.error("Por favor, preencha o valor e selecione a conta de movimentação.");
-      return;
+    
+    if (generateRevenue) {
+      if (!value || isNaN(value) || !finAccount) {
+        toast.error("Por favor, preencha o valor e selecione a conta de movimentação.");
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -374,35 +379,40 @@ export default function Sales() {
         });
       }
 
-      // Track financial txn
-      const txnDate = new Date(finDate + "T12:00:00");
-      const txn = {
-        type: finType as any,
-        projectId: finProject === "general" ? null : finProject,
-        accountId: finAccount,
-        categoryId: finCategory || null,
-        value,
-        date: txnDate,
-        description: finDesc || `Venda: ${pendingSale.client_name}`,
-        systemId: finSystem === "none" ? null : finSystem,
-        affectsSystemBalance: finAffectsSystem,
-      };
+      if (generateRevenue) {
+        // Track financial txn
+        const txnDate = new Date(finDate + "T12:00:00");
+        const txn = {
+          type: finType as any,
+          projectId: finProject === "general" ? null : finProject,
+          accountId: finAccount,
+          categoryId: finCategory || null,
+          value,
+          date: txnDate,
+          description: finDesc || `Venda: ${pendingSale.client_name}`,
+          systemId: finSystem === "none" ? null : finSystem,
+          affectsSystemBalance: finAffectsSystem,
+        };
 
-      await addTransaction(txn);
-      
-      // Update local account balance
-      if (finType === "income") {
-        await updateAccountBalance(finAccount, value);
-      } else if (finType === "expense" || finType === "withdrawal") {
-        await updateAccountBalance(finAccount, -value);
-      } else if (finType === "transfer") {
-        await updateAccountBalance(finAccount, -value);
-        if (finDestAccount) {
-          await updateAccountBalance(finDestAccount, value);
+        await addTransaction(txn);
+        
+        // Update local account balance
+        if (finType === "income") {
+          await updateAccountBalance(finAccount, value);
+        } else if (finType === "expense" || finType === "withdrawal") {
+          await updateAccountBalance(finAccount, -value);
+        } else if (finType === "transfer") {
+          await updateAccountBalance(finAccount, -value);
+          if (finDestAccount) {
+            await updateAccountBalance(finDestAccount, value);
+          }
         }
+
+        toast.success("Venda finalizada (ganha) e movimentação financeira registrada com sucesso!");
+      } else {
+        toast.success("Venda finalizada (ganha) com sucesso! Nenhuma movimentação financeira foi gerada conforme selecionado.");
       }
 
-      toast.success("Venda finalizada (ganha) e movimentação financeira registrada com sucesso!");
       setIsFinTxDialogOpen(false);
       setPendingSale(null);
       clearForm();
@@ -1729,103 +1739,24 @@ export default function Sales() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            <div>
-              <Label>Tipo da Movimentação</Label>
-              <Select value={finType} onValueChange={setFinType}>
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="income">Receita (Entrada)</SelectItem>
-                  <SelectItem value="expense">Despesa (Saída)</SelectItem>
-                  <SelectItem value="transfer">Transferência</SelectItem>
-                  <SelectItem value="withdrawal">Saque</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label>Projeto Vinculado</Label>
-              <Select value={finProject} onValueChange={setFinProject}>
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue placeholder="Geral" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="general">Geral (Nenhum projeto específico)</SelectItem>
-                  {projects.filter((p) => p.status !== "archived").map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label>Conta Creditada / Movimentada</Label>
-              <Select value={finAccount} onValueChange={setFinAccount}>
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue placeholder="Selecione uma conta" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.name} ({formatPrice(a.balance || 0)})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {finType === "transfer" && (
-              <div>
-                <Label>Conta Destino</Label>
-                <Select value={finDestAccount} onValueChange={setFinDestAccount}>
-                  <SelectTrigger className="mt-1.5">
-                    <SelectValue placeholder="Selecione a conta destino" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts.filter((a) => a.id !== finAccount).map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name} ({formatPrice(a.balance || 0)})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div>
-              <Label>Categoria Financeira</Label>
-              <Select value={finCategory} onValueChange={setFinCategory}>
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue placeholder="Selecione uma categoria" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="fin-value">Valor Recebido</Label>
-              <Input
-                id="fin-value"
-                type="number"
-                step="0.01"
-                placeholder="R$ 0,00"
-                className="mt-1.5"
-                value={finValue}
-                onChange={(e) => setFinValue(e.target.value)}
+            <div className="flex items-start space-x-3 p-3 bg-muted/30 border rounded-lg">
+              <Checkbox
+                id="generate-revenue"
+                checked={generateRevenue}
+                onCheckedChange={(checked) => setGenerateRevenue(!!checked)}
               />
+              <div className="grid gap-1.5 leading-none">
+                <Label htmlFor="generate-revenue" className="text-sm font-bold cursor-pointer text-slate-800 dark:text-slate-200">
+                  Gerar lançamento de receita e movimentação financeira?
+                </Label>
+                <p className="text-[11px] text-muted-foreground leading-normal">
+                  Se desativado, o status da venda será atualizado para ganha e contabilizado nos relatórios de vendas, porém nenhum valor ou transação será lançado nas contas ou fluxo de caixa.
+                </p>
+              </div>
             </div>
 
             <div>
-              <Label htmlFor="fin-date">Data do Fechamento (Ganha)</Label>
+              <Label htmlFor="fin-date">Data do Fechamento</Label>
               <Input
                 id="fin-date"
                 type="date"
@@ -1835,51 +1766,150 @@ export default function Sales() {
               />
             </div>
 
-            <div>
-              <Label htmlFor="fin-desc">Descrição da Transação</Label>
-              <Input
-                id="fin-desc"
-                placeholder="Descrição"
-                className="mt-1.5"
-                value={finDesc}
-                onChange={(e) => setFinDesc(e.target.value)}
-              />
-            </div>
-
-            <div className="border bg-muted/10 p-3 rounded-lg space-y-3">
-              <div>
-                <Label htmlFor="fin-system-select">Vincular a um Sistema</Label>
-                <Select value={finSystem} onValueChange={(v) => {
-                  setFinSystem(v);
-                  setFinAffectsSystem(v !== "none");
-                }}>
-                  <SelectTrigger id="fin-system-select" className="mt-1.5">
-                    <SelectValue placeholder="Escolha um sistema" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Nenhum / Não aplicável</SelectItem>
-                    {systems.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {finSystem !== "none" && (
-                <div className="flex items-center space-x-2 pt-1">
-                  <Checkbox
-                    id="fin-affects-system"
-                    checked={finAffectsSystem}
-                    onCheckedChange={(checked) => setFinAffectsSystem(!!checked)}
-                  />
-                  <Label htmlFor="fin-affects-system" className="text-xs cursor-pointer text-muted-foreground font-semibold">
-                    Esta movimentação incidirá no saldo final do sistema
-                  </Label>
+            {generateRevenue && (
+              <>
+                <div>
+                  <Label>Tipo da Movimentação</Label>
+                  <Select value={finType} onValueChange={setFinType}>
+                    <SelectTrigger className="mt-1.5">
+                      <SelectValue placeholder="Selecione" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="income">Receita (Entrada)</SelectItem>
+                      <SelectItem value="expense">Despesa (Saída)</SelectItem>
+                      <SelectItem value="transfer">Transferência</SelectItem>
+                      <SelectItem value="withdrawal">Saque</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-            </div>
+
+                <div>
+                  <Label>Projeto Vinculado</Label>
+                  <Select value={finProject} onValueChange={setFinProject}>
+                    <SelectTrigger className="mt-1.5">
+                      <SelectValue placeholder="Geral" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="general">Geral (Nenhum projeto específico)</SelectItem>
+                      {projects.filter((p) => p.status !== "archived").map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Conta Creditada / Movimentada</Label>
+                  <Select value={finAccount} onValueChange={setFinAccount}>
+                    <SelectTrigger className="mt-1.5">
+                      <SelectValue placeholder="Selecione uma conta" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accounts.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.name} ({formatPrice(a.balance || 0)})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {finType === "transfer" && (
+                  <div>
+                    <Label>Conta Destino</Label>
+                    <Select value={finDestAccount} onValueChange={setFinDestAccount}>
+                      <SelectTrigger className="mt-1.5">
+                        <SelectValue placeholder="Selecione a conta destino" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {accounts.filter((a) => a.id !== finAccount).map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name} ({formatPrice(a.balance || 0)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div>
+                  <Label>Categoria Financeira</Label>
+                  <Select value={finCategory} onValueChange={setFinCategory}>
+                    <SelectTrigger className="mt-1.5">
+                      <SelectValue placeholder="Selecione uma categoria" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="fin-value">Valor Recebido</Label>
+                  <Input
+                    id="fin-value"
+                    type="number"
+                    step="0.01"
+                    placeholder="R$ 0,00"
+                    className="mt-1.5"
+                    value={finValue}
+                    onChange={(e) => setFinValue(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="fin-desc">Descrição da Transação</Label>
+                  <Input
+                    id="fin-desc"
+                    placeholder="Descrição"
+                    className="mt-1.5"
+                    value={finDesc}
+                    onChange={(e) => setFinDesc(e.target.value)}
+                  />
+                </div>
+
+                <div className="border bg-muted/10 p-3 rounded-lg space-y-3">
+                  <div>
+                    <Label htmlFor="fin-system-select">Vincular a um Sistema</Label>
+                    <Select value={finSystem} onValueChange={(v) => {
+                      setFinSystem(v);
+                      setFinAffectsSystem(v !== "none");
+                    }}>
+                      <SelectTrigger id="fin-system-select" className="mt-1.5">
+                        <SelectValue placeholder="Escolha um sistema" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Nenhum / Não aplicável</SelectItem>
+                        {systems.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {finSystem !== "none" && (
+                    <div className="flex items-center space-x-2 pt-1">
+                      <Checkbox
+                        id="fin-affects-system"
+                        checked={finAffectsSystem}
+                        onCheckedChange={(checked) => setFinAffectsSystem(!!checked)}
+                      />
+                      <Label htmlFor="fin-affects-system" className="text-xs cursor-pointer text-muted-foreground font-semibold">
+                        Esta movimentação incidirá no saldo final do sistema
+                      </Label>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter>
