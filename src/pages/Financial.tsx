@@ -10,6 +10,7 @@ const tabs = [
   { label: "Categorias", path: "/financial/categories" },
   { label: "Receitas/Despesas", path: "/financial/recurring" },
   { label: "Movimentações", path: "/financial/transactions" },
+  { label: "Conciliação", path: "/financial/reconciliation" },
 ];
 
 export default function Financial() {

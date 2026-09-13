@@ -18,6 +18,7 @@ import FinancialAccounts from "./pages/financial/FinancialAccounts";
 import FinancialCategories from "./pages/financial/FinancialCategories";
 import FinancialRecurring from "./pages/financial/FinancialRecurring";
 import FinancialTransactions from "./pages/financial/FinancialTransactions";
+import FinancialReconciliation from "./pages/financial/FinancialReconciliation";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import ServiceOrders from "./pages/ServiceOrders";
@@ -145,6 +146,7 @@ const App = () => (
                             <Route path="categories" element={<FinancialCategories />} />
                             <Route path="recurring" element={<FinancialRecurring />} />
                             <Route path="transactions" element={<FinancialTransactions />} />
+                            <Route path="reconciliation" element={<FinancialReconciliation />} />
                           </Route>
                           <Route path="/settings" element={<Settings />}>
                             <Route index element={<ProtectedRoute module="settings"><CompanySettings /></ProtectedRoute>} />
