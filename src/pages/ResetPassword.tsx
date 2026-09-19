@@ -16,8 +16,8 @@ export default function ResetPassword() {
   useEffect(() => {
     // Supabase recovery sets a session via hash
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) setReady(true);
-    });
+      if (data?.session) setReady(true);
+    }).catch(() => {});
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") setReady(true);
     });

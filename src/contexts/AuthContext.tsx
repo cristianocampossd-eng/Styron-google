@@ -55,17 +55,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadProfile(session.user.id, session.user.email ?? null, session.user.user_metadata?.full_name || null);
-        loadRole(session.user.id, session.user.email);
-        loadPermissions(session.user.id);
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        const msg = error.message || '';
+        if (
+          msg.includes('Invalid Refresh Token') ||
+          msg.includes('Refresh Token Not Found') ||
+          msg.includes('invalid_grant')
+        ) {
+          supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+          try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+              const keysToRemove: string[] = [];
+              for (let i = 0; i < window.localStorage.length; i++) {
+                const key = window.localStorage.key(i);
+                if (key && (key.startsWith('sb-') || key.includes('auth-token'))) {
+                  keysToRemove.push(key);
+                }
+              }
+              keysToRemove.forEach((k) => window.localStorage.removeItem(k));
+            }
+          } catch (_) {}
+        }
+      }
+      const currentSession = data?.session ?? null;
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+      if (currentSession?.user) {
+        loadProfile(currentSession.user.id, currentSession.user.email ?? null, currentSession.user.user_metadata?.full_name || null);
+        loadRole(currentSession.user.id, currentSession.user.email);
+        loadPermissions(currentSession.user.id);
       }
       setLoading(false);
     }).catch((err) => {
-      console.error("Erro ao carregar sessão:", err);
+      const msg = String(err?.message || err);
+      if (
+        !msg.includes('Invalid Refresh Token') &&
+        !msg.includes('Refresh Token Not Found') &&
+        !msg.includes('invalid_grant')
+      ) {
+        console.warn("Erro ao carregar sessão:", err);
+      }
       setLoading(false);
     });
 

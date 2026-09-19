@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useDashboardPreferences } from "@/hooks/useDashboardPreferences";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -75,6 +76,7 @@ const fmt = (v: number) =>
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { preferences } = useDashboardPreferences();
   const { user, profile, canAccess } = useAuth();
   const currentUserId = user?.id || "";
   
@@ -91,6 +93,13 @@ export default function Dashboard() {
   const [loadingDb, setLoadingDb] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedSystemForModal, setSelectedSystemForModal] = useState<any>(null);
+
+  const getFirstDayOfMonthStr = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}-01`;
+  };
 
   const getTodayStr = () => {
     const d = new Date();
@@ -109,12 +118,12 @@ export default function Dashboard() {
   };
   
   // Selected Filter variables
-  const [selectedPeriod, setSelectedPeriod] = useState<string>("6 meses");
+  const [selectedPeriod, setSelectedPeriod] = useState<string>("Mês atual");
   const [systemFilter, setSystemFilter] = useState<string>("all");
   const [projectFilter, setProjectFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  const [startDateStr, setStartDateStr] = useState(getPastDateStr(180));
+  const [startDateStr, setStartDateStr] = useState(getFirstDayOfMonthStr());
   const [endDateStr, setEndDateStr] = useState(getTodayStr());
 
   // Fetch db sales, products, systems, clients, activities
@@ -184,6 +193,9 @@ export default function Dashboard() {
   useEffect(() => {
     if (selectedPeriod === "Hoje") {
       setStartDateStr(getTodayStr());
+      setEndDateStr(getTodayStr());
+    } else if (selectedPeriod === "Mês atual") {
+      setStartDateStr(getFirstDayOfMonthStr());
       setEndDateStr(getTodayStr());
     } else if (selectedPeriod === "7 dias") {
       setStartDateStr(getPastDateStr(7));
@@ -522,7 +534,13 @@ export default function Dashboard() {
 
       // Filter transactions for that previous period
       const prevTx = transactions.filter((t) => {
-        const d = new Date(t.date);
+        let d = new Date(t.date);
+        if (typeof t.date === "string") {
+          const parts = t.date.split("T")[0].split("-");
+          if (parts.length >= 3) {
+            d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          }
+        }
         if (isNaN(d.getTime())) return false;
         if (d < prevStart || d > prevEnd) return false;
 
@@ -604,7 +622,7 @@ export default function Dashboard() {
     const list: { name: string; year: number; month: number; Receitas: number; Despesas: number; sortKey: number }[] = [];
 
     const today = new Date();
-    for (let i = 5; i >= 0; i--) {
+    for (let i = 11; i >= 0; i--) {
       const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
       const label = `${portugueseMonths[d.getMonth()]}/${String(d.getFullYear()).slice(-2)}`;
       list.push({
@@ -624,7 +642,13 @@ export default function Dashboard() {
     });
 
     chartTx.forEach((t) => {
-      const tDate = new Date(t.date);
+      let tDate = new Date(t.date);
+      if (typeof t.date === "string") {
+        const parts = t.date.split("T")[0].split("-");
+        if (parts.length >= 3) {
+          tDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        }
+      }
       if (isNaN(tDate.getTime())) return;
       const tYear = tDate.getFullYear();
       const tMonth = tDate.getMonth();
@@ -645,20 +669,23 @@ export default function Dashboard() {
   // --- STATS GRAPH 2: Fluxo de Caixa (Last 6 Months) ---
   const cashFlowData = useMemo(() => {
     const portugueseMonths = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-    const list: { name: string; year: number; month: number; Saldo: number; sortKey: number }[] = [];
+    const list: { name: string; year: number; month: number; Resultado: number; sortKey: number }[] = [];
 
     const today = new Date();
-    for (let i = 5; i >= 0; i--) {
+    for (let i = 11; i >= 0; i--) {
       const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
       const label = `${portugueseMonths[d.getMonth()]}/${String(d.getFullYear()).slice(-2)}`;
       list.push({
         name: label,
         year: d.getFullYear(),
         month: d.getMonth(),
-        Saldo: 0,
+        Resultado: 0,
         sortKey: d.getFullYear() * 12 + d.getMonth(),
       });
     }
+
+    if (list.length === 0) return [];
+    const firstMonthSortKey = list[0].sortKey;
 
     const chartTx = transactions.filter((t) => {
       if (projectFilter !== "all" && t.projectId !== projectFilter) return false;
@@ -666,24 +693,37 @@ export default function Dashboard() {
       return true;
     });
 
+    let previousBalance = 0;
+
     chartTx.forEach((t) => {
-      const tDate = new Date(t.date);
+      let tDate = new Date(t.date);
+      if (typeof t.date === "string") {
+        const parts = t.date.split("T")[0].split("-");
+        if (parts.length >= 3) {
+          tDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        }
+      }
       if (isNaN(tDate.getTime())) return;
       const tYear = tDate.getFullYear();
       const tMonth = tDate.getMonth();
+      const txSortKey = tYear * 12 + tMonth;
 
-      const found = list.find((m) => m.year === tYear && m.month === tMonth);
-      if (found) {
-        if (t.type === "income") {
-          found.Saldo += t.value;
-        } else if (t.type === "expense") {
-          found.Saldo -= t.value;
+      let val = 0;
+      if (t.type === "income") val = t.value;
+      else if (t.type === "expense" || t.type === "withdrawal") val = -t.value;
+
+      if (txSortKey < firstMonthSortKey) {
+        previousBalance += val;
+      } else {
+        const found = list.find((m) => m.year === tYear && m.month === tMonth);
+        if (found) {
+          found.Resultado += val;
         }
       }
     });
 
-    return list.map(({ name, Saldo }) => ({ name, Saldo }));
-  }, [transactions, projectFilter, systemFilter]);
+    return list.map(({ name, Resultado }) => ({ name, Resultado }));
+  }, [transactions, accounts, projectFilter, systemFilter]);
 
   // --- SIDEBAR OS COUNTS ---
   const myOrdersCount = useMemo(() => {
@@ -1277,6 +1317,7 @@ export default function Dashboard() {
                   onChange={(e) => setSelectedPeriod(e.target.value)}
                 >
                   <option value="Hoje">Hoje</option>
+                  <option value="Mês atual">Mês atual</option>
                   <option value="7 dias">Últimos 7 dias</option>
                   <option value="30 dias">Últimos 30 dias</option>
                   <option value="6 meses">Últimos 6 meses</option>
@@ -1358,7 +1399,7 @@ export default function Dashboard() {
       {crmTab === "general" ? (
         <>
           {/* ----------------- UPPER SUMMARY KPI CARDS LINE ----------------- */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5" id="dashboard-kpis-container">
+          {preferences.financial_kpis && (<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5" id="dashboard-kpis-container">
         
         {/* Card 1: Receita Total */}
         {canAccess("dash_kpi_finance") && (
@@ -1496,6 +1537,7 @@ export default function Dashboard() {
         )}
 
       </div>
+      )} {/* END OF FINANCIAL KPIs */}
 
       {/* ----------------- MAIN THREE-COLUMN GRID (Left wider, Right narrow Sidebar) ----------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6" id="dashboard-main-columns-grid">
@@ -1504,18 +1546,18 @@ export default function Dashboard() {
         <div className="lg:col-span-3 space-y-6" id="dashboard-left-block">
           
           {/* Section 1: Main Charts Row */}
-          {canAccess("dash_chart_evolution") && (
+          {canAccess("dash_chart_evolution") && preferences.charts_main && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="charts-first-row">
               
               {/* Card A: Receitas vs Despesas (Grouped bars) */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="card-chart-receitas-despesas">
+            <div className="md:col-span-2 bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="card-chart-receitas-despesas">
               <div className="flex justify-between items-center mb-4">
                 <div>
                   <h3 className="font-bold text-base text-slate-800">Receitas vs Despesas</h3>
-                  <p className="text-xs text-slate-400 font-medium">Últimos 6 meses</p>
+                  <p className="text-xs text-slate-400 font-medium">Últimos 12 meses</p>
                 </div>
                 <div className="flex items-center gap-1 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold bg-slate-50 text-slate-600">
-                  <span>6 meses</span>
+                  <span>12 meses</span>
                   <SlidersHorizontal className="w-3 h-3 text-slate-400" />
                 </div>
               </div>
@@ -1526,7 +1568,7 @@ export default function Dashboard() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                     <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }} />
                     <YAxis tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }} />
-                    <Tooltip contentStyle={{ borderRadius: "12px", border: "1.5px solid #F1F5F9", fontSize: "12px" }} />
+                    <Tooltip contentStyle={{ borderRadius: "12px", border: "1.5px solid #F1F5F9", fontSize: "12px" }} formatter={(value: any) => fmt(Number(value))} />
                     <Bar dataKey="Receitas" fill="#22C55E" radius={[4, 4, 0, 0]} barSize={12} />
                     <Bar dataKey="Despesas" fill="#EF4444" radius={[4, 4, 0, 0]} barSize={12} />
                   </BarChart>
@@ -1546,14 +1588,14 @@ export default function Dashboard() {
             </div>
 
             {/* Card B: Fluxo de Caixa (Line with area gradient) */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="card-chart-fluxo-caixa">
+            <div className="md:col-span-2 bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="card-chart-fluxo-caixa">
               <div className="flex justify-between items-center mb-4">
                 <div>
                   <h3 className="font-bold text-base text-slate-800">Fluxo de Caixa</h3>
-                  <p className="text-xs text-slate-400 font-medium">Últimos 6 meses</p>
+                  <p className="text-xs text-slate-400 font-medium">Últimos 12 meses</p>
                 </div>
                 <div className="flex items-center gap-1 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold bg-slate-50 text-slate-600">
-                  <span>6 meses</span>
+                  <span>12 meses</span>
                   <SlidersHorizontal className="w-3 h-3 text-slate-400" />
                 </div>
               </div>
@@ -1562,7 +1604,7 @@ export default function Dashboard() {
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={cashFlowData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
-                      <linearGradient id="gradientSaldo" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="gradientResultado" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.2}/>
                         <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0}/>
                       </linearGradient>
@@ -1570,8 +1612,8 @@ export default function Dashboard() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                     <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }} />
                     <YAxis tickLine={false} axisLine={false} tick={{ fill: "#64748B", fontSize: 11, fontWeight: 500 }} />
-                    <Tooltip contentStyle={{ borderRadius: "12px", border: "1.5px solid #F1F5F9", fontSize: "12px" }} />
-                    <Area type="monotone" dataKey="Saldo" stroke="#8B5CF6" strokeWidth={2.5} fillOpacity={1} fill="url(#gradientSaldo)" dot={{ r: 4, strokeWidth: 1.5, stroke: "#8B5CF6", fill: "#FFFFFF" }} />
+                    <Tooltip contentStyle={{ borderRadius: "12px", border: "1.5px solid #F1F5F9", fontSize: "12px" }} formatter={(value: any) => fmt(Number(value))} />
+                    <Area type="monotone" dataKey="Resultado" stroke="#8B5CF6" strokeWidth={2.5} fillOpacity={1} fill="url(#gradientResultado)" dot={{ r: 4, strokeWidth: 1.5, stroke: "#8B5CF6", fill: "#FFFFFF" }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -1579,15 +1621,15 @@ export default function Dashboard() {
               <div className="flex items-center justify-center gap-4 mt-3 pb-1">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
                   <div className="w-30 px-1 py-0.5 rounded bg-purple-500/20 text-center font-bold text-purple-600/90 text-[10px]">
-                    ● Saldo Acumulado
+                    ● Resultado do Mês (Lucro/Prejuízo)
                   </div>
                 </div>
               </div>
             </div>
           </div>
           )}
-
           {/* Section 2: Projects Information Block */}
+          {preferences.projects_info && (
           <div className="grid grid-cols-1 md:grid-cols-5 gap-6" id="projects-second-row">
             
             {/* Left part: Evolução dos Projetos Table */}
@@ -1713,6 +1755,7 @@ export default function Dashboard() {
 
           </div>
 
+          )}
           {/* Section 3: Group 3 - Finance by Category & Finance by System */}
           {canAccess("dash_chart_systems") && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="finance-third-row">
@@ -1811,7 +1854,9 @@ export default function Dashboard() {
           </div>
           )}
 
+
           {/* Section 4: Group 4 - Finance by Project & Negotiation Funnel */}
+          {preferences.finance_project_funnel && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="projects-reconciliation-row">
             
             {/* Financeiro por Projeto Progress bars */}
@@ -1888,7 +1933,9 @@ export default function Dashboard() {
 
           </div>
 
+          )}
           {/* Section 5: Group 5 - Recent Activities & Alerts */}
+          {preferences.recent_activities_alerts && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="activities-alerts-row">
             
             {/* Atividades Recentes Card */}
@@ -1975,12 +2022,15 @@ export default function Dashboard() {
 
           </div>
 
-        </div>
 
+
+          )}
+        </div> {/* END LEFT BLOCK */}
         {/* ======================= RIGHT SIDEBAR COLUMN (lg:col-span-1) ======================= */}
         <div className="space-y-6" id="dashboard-sidebar-block">
           
           {/* Card 1: Ordens de Serviço List & OS Atraso Alarm alert callout */}
+          {preferences.sidebar_os && (
           <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="sidebar-ordens-servico">
             <h3 className="font-bold text-base text-slate-800 mb-3">Ordens de Serviço</h3>
             
@@ -2070,7 +2120,9 @@ export default function Dashboard() {
 
           </div>
 
+          )}
           {/* Card 2: Financeiro Geral (Consolidated overview) */}
+          {preferences.sidebar_finance_overview && (
           <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="sidebar-financeiro-geral">
             <h3 className="font-bold text-base text-slate-800 mb-1">Financeiro Geral</h3>
             <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mb-3">Visão consolidada</p>
@@ -2123,6 +2175,7 @@ export default function Dashboard() {
             </div>
           </div>
 
+          )}
           {/* Card 3: Receitas e Despesas Recorrentes */}
           <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="sidebar-recorrencias">
             <h3 className="font-bold text-base text-slate-800 mb-1">Receitas e Despesas Recorrentes</h3>
@@ -2187,7 +2240,9 @@ export default function Dashboard() {
             </div>
           </div>
 
+
           {/* Card 4: Produtos */}
+          {preferences.sidebar_products && (
           <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="sidebar-produtos">
             <h3 className="font-bold text-base text-slate-800 mb-1">Produtos</h3>
             <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mb-4">Visão geral dos produtos</p>
@@ -2237,7 +2292,9 @@ export default function Dashboard() {
             </div>
           </div>
 
+          )}
           {/* Card 5: Indicadores de Vendas (Performance Comercial) */}
+          {preferences.sidebar_sales_indicators && (
           <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs" id="sidebar-indicadores-vendas">
             <h3 className="font-bold text-base text-slate-800 mb-1">Indicadores de Vendas</h3>
             <p className="text-[11px] text-slate-400 font-bold uppercase tracking-wider mb-4">Performance comercial</p>
@@ -2288,6 +2345,8 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
+          )}
+
 
         </div>
 
@@ -2296,6 +2355,7 @@ export default function Dashboard() {
       ) : (
         <div className="space-y-6">
           {/* --- KPI SUMMARY ROW FOR CRM --- */}
+          {preferences.crm_kpis && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 animate-in fade-in duration-300" id="crm-summary-kpis-grid">
             {/* Card 1: Total Clientes */}
             <div
@@ -2396,7 +2456,9 @@ export default function Dashboard() {
             </div>
           </div>
 
+          )}
           {/* --- BENTO SECTION FOR GRAPHICS --- */}
+          {preferences.crm_charts && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom duration-500" id="crm-bento-graphics-grid">
             
             {/* Chart 1: Clientes por Segmento */}
@@ -2568,8 +2630,10 @@ export default function Dashboard() {
               </div>
               <p className="text-[10px] text-slate-400 text-center mt-2 font-medium italic">Clique no gráfico para auditar toda a carteira comercial de leads</p>
             </div>
-
           </div>
+          )}
+
+
         </div>
       )}
 
@@ -2624,9 +2688,17 @@ export default function Dashboard() {
                     selectedSystemForModal.systemTx.map((tx: any) => {
                       const isIncome = tx.type === "income";
                       const catName = categories.find((c) => c.id === tx.categoryId)?.name || "Geral";
-                      const txDate = tx.date 
-                        ? new Date(tx.date).toLocaleDateString("pt-BR") 
-                        : "Sem data";
+                      let txDate = "Sem data";
+                      if (tx.date) {
+                        let d = new Date(tx.date);
+                        if (typeof tx.date === "string") {
+                          const parts = tx.date.split("T")[0].split("-");
+                          if (parts.length >= 3) {
+                            d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                          }
+                        }
+                        txDate = d.toLocaleDateString("pt-BR");
+                      }
 
                       // Helper to clean descriptions of the tags
                       const cleanDesc = (tx.description || "Transação sem descrição")

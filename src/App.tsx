@@ -29,6 +29,7 @@ import CompanySettings from "./pages/settings/CompanySettings";
 import PasswordSettings from "./pages/settings/PasswordSettings";
 import AccountsSettings from "./pages/settings/AccountsSettings";
 import IntegrationsSettings from "./pages/settings/IntegrationsSettings";
+import DashboardSettings from "./pages/settings/DashboardSettings";
 import Passwords from "./pages/Passwords";
 import Sales from "./pages/Sales";
 import Clients from "./pages/Clients";
@@ -154,6 +155,7 @@ const App = () => (
                             <Route path="password" element={<PasswordSettings />} />
                             <Route path="accounts" element={<ProtectedRoute module="settings"><AccountsSettings /></ProtectedRoute>} />
                             <Route path="integrations" element={<ProtectedRoute module="settings"><IntegrationsSettings /></ProtectedRoute>} />
+                            <Route path="dashboard" element={<ProtectedRoute module="settings"><DashboardSettings /></ProtectedRoute>} />
                             <Route path="passwords" element={<ProtectedRoute module="passwords"><Passwords /></ProtectedRoute>} />
                           </Route>
                           <Route path="/profile" element={<Profile />} />
